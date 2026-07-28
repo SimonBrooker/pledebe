@@ -293,6 +293,51 @@ consecutive database-side anomalies have now turned out benign, and the
 functional-probe design makes the question moot: if tag search ever does break,
 the API probe catches it directly. Revisit only if a user reports missing tags.
 
+## Backup freshness — the alarm was ours (2026-07-28)
+
+pledebe's first run reported "newest backup 91 days old" on a server whose
+backups were running perfectly: every three days at 02:00, newest from
+yesterday, both `library.db` and `blobs.db`.
+
+Cause: `ButlerDatabaseBackupPath` had been set to `/backup/Databases`. We read
+the directory beside the database, found four leftovers from before that setting
+changed, and reported their age with total confidence.
+
+A second bug hid the evidence. The log check globbed
+`'Plex Media Server.log'*`, which matches only the current file — rotations are
+named `Plex Media Server.1.log`. It reported zero Butler activity on a server
+logging 19799 Butler lines in a single file, appearing to corroborate the false
+alarm.
+
+**Fixes:** read the configured path from `Preferences.xml` (whitelisted
+attributes only — the file holds `PlexOnlineToken`), accept an explicit mount
+for it, and glob `Plex Media Server*.log`.
+
+**The rule this produces:** distinguish *absence of data* from *evidence of
+failure*. If the configured backup directory is not visible in our mount
+namespace, the honest output is "unknown — cannot see it", never "no backups".
+Two bugs pointing the same way felt like corroboration and was not.
+
+## Running tally
+
+Things that looked like findings on a healthy server:
+
+| # | Apparent finding | Reality |
+|---|---|---|
+| 1 | FTS `integrity-check` corruption ×4 tables | check is unreliable |
+| 2 | Count parity exact | tautological |
+| 3 | `_docsize` gaps up to 61% | benign |
+| 4 | Plain index finds 53% of newest titles | benign, index unused |
+| 5 | 171 crash reports | 171 PMS *version* directories |
+| 6 | Backups 91 days stale | wrong directory |
+| 7 | Butler never runs | broken log glob |
+
+**Zero true positives so far.** Every alarming number has been a measurement
+error or a benign quirk. The dominant risk in this product is not missing a real
+fault — it is confidently reporting one that does not exist. Design accordingly:
+prefer "unknown" over "broken", and calibrate every signal against a healthy
+server before it can alert.
+
 ## Summary for implementers
 
 Do not build any FTS alert on SQLite introspection. Five separate database-side
