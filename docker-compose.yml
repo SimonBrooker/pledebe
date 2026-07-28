@@ -1,0 +1,55 @@
+# pledebe — default deployment is monitor-only:
+#   read-only config mount, no Docker socket, no write path to your database.
+#
+# Point PLEX_CONFIG at the directory containing "Plug-in Support/Databases".
+# See docs/platforms.md for where that lives on Unraid / Synology / QNAP /
+# TrueNAS / Windows. pledebe scans for the database rather than trusting paths,
+# so mounting a parent directory is fine.
+
+services:
+  pledebe:
+    image: ghcr.io/simonbrooker/pledebe:edge
+    container_name: pledebe
+    ports:
+      - "8080:8080"
+    environment:
+      # How to obtain Plex SQLite: docker | mount | download
+      #   docker   - copy it out of the PMS container (exact version match)
+      #   mount    - use PLEX_INSTALL below (native Linux installs)
+      #   download - fetch the Linux PMS package (required on Windows/SPK/QPKG)
+      PLEX_SQLITE_SOURCE: download
+      PLEX_CONTAINER: plex          # only used when source=docker
+      SCAN_INTERVAL: 15m
+      DEEP_CHECK_CRON: "0 4 * * *"  # keep clear of Plex's Butler window
+      AUTH_MODE: basic              # never "none" on a LAN
+      NOTIFY_URL: ""                # shoutrrr-style, e.g. ntfy://...
+      TZ: Europe/London
+    volumes:
+      # Read-only. pledebe never writes here in monitor mode.
+      - ${PLEX_CONFIG:?set PLEX_CONFIG in .env}:/plexconfig:ro
+      # Its own history database and cached Plex SQLite.
+      - ./data:/data
+      # Snapshot scratch. MUST be real disk, never tmpfs — Unraid's /tmp is RAM.
+      # Needs ~1x database size for monitoring, 3x if you enable repair.
+      - ./scratch:/scratch
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Everything below is OPTIONAL and only for PMS running in Docker on this host.
+  #   docker compose --profile repair up -d
+  # It grants pledebe the ability to stop and start your Plex container. Skip it
+  # unless you want automated repair; guided repair works without any of this.
+  # ---------------------------------------------------------------------------
+
+  socket-proxy:
+    image: tecnativa/docker-socket-proxy
+    container_name: pledebe-socket-proxy
+    profiles: [repair, sqlite-from-docker]
+    environment:
+      CONTAINERS: 1
+      # POST is what allows stop/start. The "sqlite-from-docker" profile does not
+      # need it — `docker cp` is a GET — so leave it 0 unless repair is enabled.
+      POST: ${SOCKET_ALLOW_POST:-0}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    restart: unless-stopped

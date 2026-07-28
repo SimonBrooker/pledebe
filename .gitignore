@@ -1,0 +1,6 @@
+/scratch/
+/data/
+*.db-wal
+*.db-shm
+spike-results/
+.env
