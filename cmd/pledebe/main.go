@@ -85,7 +85,15 @@ func report(in *plex.Install, db *plex.SQLite, m *plex.Metrics) {
 	}
 
 	fmt.Println("\nEnvironment")
-	fmt.Printf("  crash reports : %d\n", m.CrashReportCount)
+	if m.PMSVersion != "" {
+		fmt.Printf("  PMS version   : %s (since %s)\n",
+			m.PMSVersion, m.VersionSeenAt.Format("2006-01-02"))
+	}
+	fmt.Printf("  crash files   : %d total, %d in the last 14 days\n",
+		m.CrashReportCount, m.RecentCrashCount)
+	if !m.NewestCrashAt.IsZero() {
+		fmt.Printf("  newest crash  : %s\n", m.NewestCrashAt.Format("2006-01-02"))
+	}
 	fmt.Printf("  volume free   : %s\n", human(m.VolumeFreeBytes))
 	if m.VolumeFreeBytes > 0 && m.VolumeFreeBytes < m.DatabaseBytes {
 		fmt.Println("  WARNING: less free space than the database size --")

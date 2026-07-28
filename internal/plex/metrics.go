@@ -34,10 +34,25 @@ type Metrics struct {
 	// NewestBackup is the most recent PMS-generated dated backup. A stale or
 	// missing backup is a real finding: Butler's backup job failing silently is
 	// common, and nobody notices until they need it.
-	NewestBackup     string    `json:"newest_backup,omitempty"`
-	NewestBackupAt   time.Time `json:"newest_backup_at,omitempty"`
-	BackupCount      int       `json:"backup_count"`
-	CrashReportCount int       `json:"crash_report_count"`
+	NewestBackup   string    `json:"newest_backup,omitempty"`
+	NewestBackupAt time.Time `json:"newest_backup_at,omitempty"`
+	BackupCount    int       `json:"backup_count"`
+
+	// CrashReportCount counts crash FILES, not directories.
+	//
+	// "Crash Reports" contains one directory per PMS version ever installed —
+	// 171 of them on a long-lived server going back years. Counting entries
+	// reports version history as crashes. Verified 2026-07-28.
+	CrashReportCount  int       `json:"crash_report_count"`
+	RecentCrashCount  int       `json:"recent_crash_count"`
+	NewestCrashAt     time.Time `json:"newest_crash_at,omitempty"`
+
+	// PMSVersion is inferred from the newest "Crash Reports" subdirectory, and
+	// VersionSeenAt is when that directory appeared — an approximate upgrade
+	// date. Schema migrations are a risk window, so knowing a problem began
+	// hours after an upgrade is worth more than most metrics here.
+	PMSVersion    string    `json:"pms_version,omitempty"`
+	VersionSeenAt time.Time `json:"version_seen_at,omitempty"`
 
 	// VolumeFreeBytes is free space where the database lives. Deep checks and
 	// repairs need headroom (roughly 1x the database for a snapshot, 3x for a
@@ -81,7 +96,7 @@ func (in *Install) Collect(ctx context.Context, db *SQLite) (*Metrics, error) {
 	m.FreelistBytes = m.FreelistCount * m.PageSize
 
 	in.collectBackups(m)
-	m.CrashReportCount = countEntries(filepath.Join(in.ConfigRoot, "Crash Reports"))
+	in.collectCrashes(m)
 	m.VolumeFreeBytes = freeBytes(filepath.Dir(in.Database))
 
 	return m, nil
@@ -108,6 +123,61 @@ func (in *Install) collectBackups(m *Metrics) {
 		if at.After(m.NewestBackupAt) {
 			m.NewestBackupAt = at
 			m.NewestBackup = e.Name()
+		}
+	}
+}
+
+// recentCrashWindow bounds what counts as a "recent" crash. Old crashes are
+// history; a cluster in the last fortnight is a signal.
+const recentCrashWindow = 14 * 24 * time.Hour
+
+// collectCrashes walks "Crash Reports", which is laid out as one directory per
+// PMS version containing the actual crash files:
+//
+//	Crash Reports/1.43.3.10828-00f62d37d/<crash files>
+//	Crash Reports/1.43.2.10687-563d026ea/<crash files>
+//
+// We count files, not directories, and take the newest directory as the running
+// version.
+func (in *Install) collectCrashes(m *Metrics) {
+	root := filepath.Join(in.ConfigRoot, "Crash Reports")
+
+	versions, err := os.ReadDir(root)
+	if err != nil {
+		return
+	}
+
+	cutoff := time.Now().Add(-recentCrashWindow)
+
+	for _, v := range versions {
+		if !v.IsDir() {
+			continue
+		}
+		info, err := v.Info()
+		if err == nil && info.ModTime().After(m.VersionSeenAt) {
+			m.VersionSeenAt = info.ModTime()
+			m.PMSVersion = v.Name()
+		}
+
+		files, err := os.ReadDir(filepath.Join(root, v.Name()))
+		if err != nil {
+			continue
+		}
+		for _, f := range files {
+			if f.IsDir() {
+				continue
+			}
+			m.CrashReportCount++
+			fi, err := f.Info()
+			if err != nil {
+				continue
+			}
+			if fi.ModTime().After(m.NewestCrashAt) {
+				m.NewestCrashAt = fi.ModTime()
+			}
+			if fi.ModTime().After(cutoff) {
+				m.RecentCrashCount++
+			}
 		}
 	}
 }
