@@ -27,13 +27,95 @@ type DeepCheck struct {
 	SnapshotBytes    int64 `json:"snapshot_bytes"`
 	ReclaimableBytes int64 `json:"reclaimable_bytes"`
 
-	// IntegrityOK is PRAGMA integrity_check returning "ok". Note this is the
-	// main database check, which is trustworthy. FTS integrity-check is NOT run
-	// here: it reports corruption on healthy databases (see docs/signals.md).
+	// IntegrityOK is PRAGMA integrity_check returning "ok".
 	IntegrityOK     bool   `json:"integrity_ok"`
 	IntegrityDetail string `json:"integrity_detail,omitempty"`
 
+	// FTS holds per-table full-text index results. These are checked
+	// separately because PRAGMA integrity_check does NOT cover them: an FTS
+	// index can be corrupt while the main check returns ok.
+	FTS []FTSTable `json:"fts,omitempty"`
+
 	Err string `json:"error,omitempty"`
+}
+
+// FTSTable is one full-text index's health.
+type FTSTable struct {
+	Name        string `json:"name"`
+	SourceTable string `json:"source_table"`
+
+	IntegrityOK     bool   `json:"integrity_ok"`
+	IntegrityDetail string `json:"integrity_detail,omitempty"`
+
+	// IndexedDocs comes from the _docsize shadow table: one row per indexed
+	// document. SourceRows is the content table's row count.
+	//
+	// Do NOT compare `SELECT count(*)` on the FTS table itself against the
+	// source — for external-content FTS4 that reads the content table and is
+	// tautologically equal.
+	IndexedDocs int64 `json:"indexed_docs"`
+	SourceRows  int64 `json:"source_rows"`
+}
+
+// MissingDocs is how many source rows are absent from the index.
+func (f FTSTable) MissingDocs() int64 {
+	if f.SourceRows <= f.IndexedDocs {
+		return 0
+	}
+	return f.SourceRows - f.IndexedDocs
+}
+
+// ftsTables are Plex's full-text indexes and the content tables behind them.
+var ftsTables = []struct{ name, source string }{
+	{"fts4_metadata_titles", "metadata_items"},
+	{"fts4_metadata_titles_icu", "metadata_items"},
+	{"fts4_tag_titles", "tags"},
+	{"fts4_tag_titles_icu", "tags"},
+}
+
+// checkFTS verifies the full-text indexes on the SNAPSHOT.
+//
+// This runs against our own throwaway copy, never the live database — the
+// integrity-check command is issued as an INSERT, which is why it must not be
+// pointed at Plex's database.
+//
+// Why this matters: PRAGMA integrity_check passes on databases whose FTS
+// indexes are damaged. DBRepair documents the consequence — adding an item to
+// a collection or updating metadata fails with "database disk image is
+// malformed" — and its Reindex rebuilds them. Reads keep working, which is why
+// this is easy to miss and why search appearing fine proves nothing.
+func (in *Install) checkFTS(ctx context.Context, deep *SQLite, snapshot string) []FTSTable {
+	var out []FTSTable
+
+	for _, t := range ftsTables {
+		exists, err := deep.QueryInt(ctx, snapshot,
+			fmt.Sprintf("SELECT count(*) FROM sqlite_master WHERE name='%s';", t.name))
+		if err != nil || exists == 0 {
+			continue
+		}
+
+		table := FTSTable{Name: t.name, SourceTable: t.source}
+
+		res, err := deep.Query(ctx, snapshot,
+			fmt.Sprintf("INSERT INTO %s(%s) VALUES('integrity-check');", t.name, t.name))
+		// The command reports failure via output, exit status, or both.
+		table.IntegrityOK = err == nil && strings.TrimSpace(res) == ""
+		if !table.IntegrityOK {
+			detail := strings.TrimSpace(res)
+			if detail == "" && err != nil {
+				detail = err.Error()
+			}
+			table.IntegrityDetail = truncate(detail, 300)
+		}
+
+		table.IndexedDocs, _ = deep.QueryInt(ctx, snapshot,
+			fmt.Sprintf("SELECT count(*) FROM %s_docsize;", t.name))
+		table.SourceRows, _ = deep.QueryInt(ctx, snapshot,
+			fmt.Sprintf("SELECT count(*) FROM %s;", t.source))
+
+		out = append(out, table)
+	}
+	return out
 }
 
 // deepCheckTimeout is generous: a snapshot of a very large library on slow
@@ -115,6 +197,10 @@ func (in *Install) RunDeepCheck(ctx context.Context, db *SQLite, scratchDir stri
 		// Keep it bounded: integrity_check can return a great many lines.
 		dc.IntegrityDetail = truncate(out, 2000)
 	}
+
+	// Separate from the main check, and deliberately after it: FTS damage is
+	// invisible to PRAGMA integrity_check.
+	dc.FTS = in.checkFTS(ctx, deep, snapshot)
 
 	return dc, nil
 }

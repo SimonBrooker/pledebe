@@ -8,14 +8,22 @@
 //
 // Two rules follow:
 //
-//   - Nothing here derives a finding from FTS internals. Every such signal was
-//     rejected during calibration.
 //   - When we cannot measure something, we say Unknown. We never infer failure
 //     from absence of data.
+//   - A finding must name the symptom a user would actually notice, not the
+//     internal state we measured.
+//
+// The second rule came from nearly getting FTS wrong. Every calibration test
+// was a read — MATCH queries, row counts, UI search — and they all passed, so
+// the failing integrity-check looked like a false positive. DBRepair documents
+// the real symptom as occurring on WRITES: adding to collections, editing
+// metadata. Testing the half that works proves nothing about the half that
+// does not.
 package health
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/SimonBrooker/pledebe/internal/plex"
@@ -73,6 +81,7 @@ func Evaluate(m *plex.Metrics, dc *plex.DeepCheck) []Finding {
 	}
 
 	add(integrityFinding(dc))
+	add(ftsFinding(dc))
 	add(backupFinding(m))
 	add(diskFinding(m))
 	add(crashFinding(m))
@@ -113,6 +122,50 @@ func integrityFinding(dc *plex.DeepCheck) Finding {
 	}
 
 	return Finding{LevelOK, "Database integrity verified", when}
+}
+
+// ftsFinding reports full-text index health.
+//
+// PRAGMA integrity_check does not cover FTS indexes: they can be corrupt while
+// the main check returns ok. DBRepair documents the consequence — adding an
+// item to a collection or updating metadata fails with "database disk image is
+// malformed" — and its Reindex rebuilds them.
+//
+// The detail deliberately states that reads are unaffected. During development
+// this was nearly dismissed as a false positive precisely because search kept
+// working; the documented symptom is on WRITES. Telling the user that up front
+// stops them concluding we are wrong when their searches still return results.
+func ftsFinding(dc *plex.DeepCheck) Finding {
+	if dc == nil || dc.Err != "" || len(dc.FTS) == 0 {
+		return Finding{LevelUnknown, "Search indexes not yet checked",
+			"the first deep check has not reported full-text index health"}
+	}
+
+	var failed []string
+	var missing int64
+	for _, t := range dc.FTS {
+		if !t.IntegrityOK {
+			failed = append(failed, t.Name)
+		}
+		missing += t.MissingDocs()
+	}
+
+	if len(failed) > 0 {
+		return Finding{LevelWarn, "Search indexes report corruption",
+			fmt.Sprintf("%d of %d full-text indexes failed their integrity check (%s). "+
+				"Searching still works — the documented symptom is adding items to "+
+				"collections or editing metadata failing. DBRepair's Reindex rebuilds them.",
+				len(failed), len(dc.FTS), strings.Join(failed, ", "))}
+	}
+
+	if missing > 0 {
+		return Finding{LevelUnknown, "Search indexes are incomplete",
+			fmt.Sprintf("%d documents missing across %d indexes, though all pass their "+
+				"integrity check", missing, len(dc.FTS))}
+	}
+
+	return Finding{LevelOK, "Search indexes healthy",
+		fmt.Sprintf("%d full-text indexes pass integrity check", len(dc.FTS))}
 }
 
 func roundDuration(d time.Duration) string {

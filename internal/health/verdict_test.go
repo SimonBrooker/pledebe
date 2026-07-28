@@ -1,6 +1,7 @@
 package health
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -215,5 +216,66 @@ func TestBloatUsesExactMeasurementAndStillNeverWarns(t *testing.T) {
 	}
 	if _, ok := find(Evaluate(&plex.Metrics{}, dc), "Database is bloated"); !ok {
 		t.Error("expected the exact measurement to be reported")
+	}
+}
+
+// FTS integrity failure must warn. An earlier version of this project treated
+// it as a false positive because reads kept working; DBRepair documents the
+// symptom as occurring on writes.
+func TestFTSCorruptionWarns(t *testing.T) {
+	dc := &plex.DeepCheck{
+		StartedAt:   time.Now(),
+		IntegrityOK: true, // main check passes -- FTS damage is invisible to it
+		FTS: []plex.FTSTable{
+			{Name: "fts4_metadata_titles", IntegrityOK: false, IndexedDocs: 133995, SourceRows: 138181},
+			{Name: "fts4_metadata_titles_icu", IntegrityOK: false, IndexedDocs: 138180, SourceRows: 138181},
+		},
+	}
+
+	f, ok := find(Evaluate(&plex.Metrics{}, dc), "Search indexes report corruption")
+	if !ok {
+		t.Fatal("expected an FTS corruption finding")
+	}
+	if f.Level != LevelWarn {
+		t.Errorf("Level = %q, want %q", f.Level, LevelWarn)
+	}
+	// The user will test search, find it working, and doubt us unless we say so.
+	if !strings.Contains(f.Detail, "Searching still works") {
+		t.Error("detail must explain that reads are unaffected")
+	}
+	if !strings.Contains(f.Detail, "Reindex") {
+		t.Error("detail must name the remedy")
+	}
+}
+
+func TestFTSHealthyAndIncomplete(t *testing.T) {
+	healthy := &plex.DeepCheck{
+		StartedAt: time.Now(),
+		FTS: []plex.FTSTable{
+			{Name: "fts4_metadata_titles", IntegrityOK: true, IndexedDocs: 100, SourceRows: 100},
+		},
+	}
+	if f, ok := find(Evaluate(&plex.Metrics{}, healthy), "Search indexes healthy"); !ok || f.Level != LevelOK {
+		t.Errorf("healthy: got %+v (ok=%v)", f, ok)
+	}
+
+	// Passing integrity but missing documents is odd, not proven broken.
+	incomplete := &plex.DeepCheck{
+		StartedAt: time.Now(),
+		FTS: []plex.FTSTable{
+			{Name: "fts4_tag_titles_icu", IntegrityOK: true, IndexedDocs: 208818, SourceRows: 531055},
+		},
+	}
+	if f, ok := find(Evaluate(&plex.Metrics{}, incomplete), "Search indexes are incomplete"); !ok || f.Level != LevelUnknown {
+		t.Errorf("incomplete: got %+v (ok=%v)", f, ok)
+	}
+}
+
+func TestMissingDocsNeverNegative(t *testing.T) {
+	// The ICU index held one MORE document than the source table during
+	// testing; subtraction must not underflow into a nonsense figure.
+	tbl := plex.FTSTable{IndexedDocs: 138181, SourceRows: 138180}
+	if got := tbl.MissingDocs(); got != 0 {
+		t.Errorf("MissingDocs = %d, want 0", got)
 	}
 }

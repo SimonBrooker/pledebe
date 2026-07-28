@@ -1,5 +1,53 @@
 # Signals: what we alert on, and what we deliberately don't
 
+> **CORRECTION (2026-07-28, later the same day).** This document previously
+> concluded that FTS `integrity-check` was a false positive and instructed
+> implementers not to build any FTS alert. **That conclusion was wrong and the
+> instruction has been reversed.** See "FTS: the correction" below. The
+> calibration reasoning that follows is preserved because the *method* was
+> sound — the error was in what it tested, and that is worth keeping visible.
+
+## FTS: the correction
+
+Every test used to reject the FTS signal was a **read**: MATCH probes, row
+counts, `_docsize` comparisons, and searching the Plex UI. They all passed, so
+the failing integrity-check looked like noise.
+
+[DBRepair's documentation](https://github.com/ChuckPa/DBRepair) states the
+opposite, and names a symptom none of those tests exercise:
+
+> FTS indexes can become corrupted even when standard integrity checks pass,
+> causing operations like adding items to collections to fail with "database
+> disk image is malformed" errors.
+
+The failure is on **writes**. A corrupt FTS index reads perfectly and fails on
+UPDATE. Testing search and concluding the index is healthy is a category error.
+
+That reframes the evidence gathered during calibration. These were explained
+away as tokenizer quirks; they are equally consistent with genuine corruption,
+and the tool that specialises in these databases says corruption is what they
+are:
+
+- `integrity-check` failing on all four FTS tables
+- `fts4_metadata_titles` missing ~4186 documents
+- `fts4_tag_titles_icu` missing ~322,000 documents (61%)
+
+**Decision: pledebe warns on FTS integrity failure.** The cost asymmetry is
+decisive — staying silent on a real fault means the user hits collection-add
+failures with no diagnosis, which is exactly what this product exists to
+prevent, while a false alarm costs them a Reindex: fast, safe, and non
+destructive. When the recommended action is that cheap, the bar for reporting
+is lower than it would be for suggesting a repair.
+
+The finding text says explicitly that searching still works and names the write
+symptom, so a user who tests search does not conclude pledebe is broken.
+
+**Method note:** the checks are run against the deep-check snapshot, never the
+live database — `integrity-check` is issued as an `INSERT`.
+
+---
+
+
 Every signal here has to survive one test: does it fire on a healthy database?
 The first one we tried did, which is why this document exists.
 
