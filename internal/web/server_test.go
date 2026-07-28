@@ -41,7 +41,7 @@ func newTestServer(t *testing.T, m *plex.Metrics, dc *plex.DeepCheck) http.Handl
 		Database:   "/plexconfig/Plug-in Support/Databases/com.plexapp.plugins.library.db",
 		LogDir:     "/plexconfig/Logs",
 	}
-	srv, err := New(install, "/plexbin/Plex SQLite", "test", st, nil)
+	srv, err := New(install, "/plexbin/Plex SQLite", "test", st, nil, Auth{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,7 +189,7 @@ func serverWithRunner(t *testing.T, run func(context.Context) error) http.Handle
 	if err := st.Insert(fullMetrics()); err != nil {
 		t.Fatal(err)
 	}
-	srv, err := New(&plex.Install{Database: "/db"}, "/plexbin/Plex SQLite", "test", st, run)
+	srv, err := New(&plex.Install{Database: "/db"}, "/plexbin/Plex SQLite", "test", st, run, Auth{})
 	if err != nil {
 		t.Fatal(err)
 	}

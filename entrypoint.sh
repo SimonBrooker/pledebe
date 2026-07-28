@@ -16,7 +16,10 @@ PGID=${PGID:-1000}
 if [ "$(id -u)" = "0" ]; then
     mkdir -p /data
     # Only /data. The Plex mounts are read-only and must not be touched.
-    chown -R "$PUID:$PGID" /data 2>/dev/null || \
+    # -h changes symlinks themselves rather than following them: a symlink
+    # planted in the data volume must not be able to redirect a root chown at
+    # something outside it.
+    chown -Rh "$PUID:$PGID" /data 2>/dev/null || \
         echo "pledebe: warning: could not chown /data; continuing" >&2
 
     exec su-exec "$PUID:$PGID" /usr/local/bin/pledebe "$@"

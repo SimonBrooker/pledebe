@@ -134,7 +134,12 @@ func serve(install *plex.Install, db *plex.SQLite, dataDir, addr string,
 		return err
 	}
 
-	srv, err := web.New(install, db.BinaryPath, version, st, deepFn)
+	auth := web.Auth{
+		User:     os.Getenv("PLEDEBE_USER"),
+		Password: os.Getenv("PLEDEBE_PASSWORD"),
+	}
+
+	srv, err := web.New(install, db.BinaryPath, version, st, deepFn, auth)
 	if err != nil {
 		return err
 	}
@@ -161,6 +166,7 @@ func serve(install *plex.Install, db *plex.SQLite, dataDir, addr string,
 
 	log.Printf("pledebe %s watching %s", version, install.Database)
 	log.Printf("status page on %s, collecting every %s", addr, interval)
+	web.WarnIfExposed(addr, auth)
 
 	if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err

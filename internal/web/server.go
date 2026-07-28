@@ -37,6 +37,7 @@ type Server struct {
 	SQLitePath string
 	Version    string
 	Store      *store.Store
+	Auth       Auth
 
 	runner *deepRunner
 	tmpl   *template.Template
@@ -67,7 +68,7 @@ type pageData struct {
 // New builds a server. runDeep may be nil, in which case the page offers no
 // button — a deployment that cannot run checks should not pretend it can.
 func New(install *plex.Install, sqlitePath, version string, st *store.Store,
-	runDeep func(context.Context) error) (*Server, error) {
+	runDeep func(context.Context) error, auth Auth) (*Server, error) {
 	funcs := template.FuncMap{
 		"bytes": humanBytes,
 		// Accepts any integer width: the metrics mix int and int64, and a
@@ -82,7 +83,7 @@ func New(install *plex.Install, sqlitePath, version string, st *store.Store,
 	}
 	srv := &Server{
 		Install: install, SQLitePath: sqlitePath, Version: version,
-		Store: st, tmpl: tmpl,
+		Store: st, tmpl: tmpl, Auth: auth,
 	}
 	if runDeep != nil {
 		srv.runner = &deepRunner{run: runDeep}
@@ -93,14 +94,17 @@ func New(install *plex.Install, sqlitePath, version string, st *store.Store,
 // Handler returns the HTTP routes.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /{$}", s.status)
-	mux.HandleFunc("POST /deepcheck", s.postDeepCheck)
-	mux.HandleFunc("GET /api/latest", s.apiLatest)
+	mux.HandleFunc("GET /{$}", s.requireAuth(s.status))
+	mux.HandleFunc("POST /deepcheck", s.requireAuth(s.postDeepCheck))
+	mux.HandleFunc("GET /api/latest", s.requireAuth(s.apiLatest))
+
+	// Unauthenticated on purpose: container health checks must reach it, and
+	// it reveals nothing beyond the process being alive.
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintln(w, "ok")
 	})
-	return mux
+	return secureHeaders(mux)
 }
 
 func (s *Server) status(w http.ResponseWriter, _ *http.Request) {

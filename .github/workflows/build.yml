@@ -38,6 +38,16 @@ jobs:
           GOOS=windows GOARCH=amd64 go build ./...
           GOOS=darwin  GOARCH=arm64 go build ./...
 
+      - name: Vulnerability scan
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
+      - name: Vulnerability scan
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
       - name: Shell scripts
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck

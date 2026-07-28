@@ -25,6 +25,14 @@ services:
       TZ: ${TZ:-Etc/UTC}
       # Set only if PLEX_BACKUP is mounted below.
       PLEX_BACKUP_DIR: ${PLEX_BACKUP_DIR:-}
+
+      # Optional HTTP basic auth. Strongly recommended if this port is reachable
+      # by anything you do not control: the page exposes filesystem paths and
+      # database details, and has a button that makes the server read the whole
+      # database. pledebe logs a warning at startup if it listens on all
+      # interfaces without credentials.
+      PLEDEBE_USER: ${PLEDEBE_USER:-}
+      PLEDEBE_PASSWORD: ${PLEDEBE_PASSWORD:-}
     volumes:
       # The Plex config root — pledebe scans it for the database and never
       # writes to it.
@@ -50,3 +58,13 @@ services:
       - ./data:/data
 
     restart: unless-stopped
+
+    # Hardening. pledebe needs no privileges beyond reading the mounts and
+    # writing /data; anything it could be made to do beyond that is a bug.
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
