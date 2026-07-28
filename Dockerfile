@@ -1,7 +1,7 @@
 # Static build — no cgo, so this cross-compiles to arm64 without QEMU.
 # That matters: most pledebe users are on NAS hardware, and emulated builds are
 # slow enough to dominate CI time.
-FROM --platform=$BUILDPLATFORM golang:1.23-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS build
 
 ARG TARGETOS
 ARG TARGETARCH

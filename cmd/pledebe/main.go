@@ -1,19 +1,30 @@
 // Command pledebe monitors the health of a Plex Media Server database.
 //
-// Milestone 1 is read-only by construction: it opens nothing for writing, has
-// no Docker socket, and contains no repair code path.
+// Read-only by construction: it opens nothing for writing under the Plex
+// config directory, has no Docker socket, and contains no repair code path.
 package main
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
+	"log"
+	"net/http"
 	"os"
+	"os/signal"
+	"path/filepath"
+	"syscall"
 	"time"
 
+	"github.com/SimonBrooker/pledebe/internal/health"
 	"github.com/SimonBrooker/pledebe/internal/plex"
+	"github.com/SimonBrooker/pledebe/internal/store"
+	"github.com/SimonBrooker/pledebe/internal/web"
 )
+
+var version = "dev"
 
 func main() {
 	var (
@@ -23,32 +34,58 @@ func main() {
 			"directory containing the Plex SQLite binary (and its siblings)")
 		backupDir = flag.String("backups", envOr("PLEX_BACKUP_DIR", ""),
 			"where PMS's configured backup path is mounted for pledebe to read")
-		asJSON = flag.Bool("json", false, "emit JSON instead of a readable report")
+		dataDir = flag.String("data", envOr("PLEDEBE_DATA", "/data"),
+			"directory for pledebe's own history database")
+		addr = flag.String("addr", envOr("PLEDEBE_ADDR", ":8080"),
+			"listen address for the status page")
+		interval = flag.Duration("interval", envDuration("SCAN_INTERVAL", 15*time.Minute),
+			"how often to collect metrics")
+		retain = flag.Duration("retain", envDuration("PLEDEBE_RETAIN", 90*24*time.Hour),
+			"how long to keep history")
+		once   = flag.Bool("once", false, "collect once, print a report, and exit")
+		asJSON = flag.Bool("json", false, "with -once, emit JSON")
 	)
 	flag.Parse()
 
-	if err := run(*configRoot, *sqliteDir, *backupDir, *asJSON); err != nil {
+	install, db, err := setup(*configRoot, *sqliteDir, *backupDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "pledebe: %v\n", err)
+		os.Exit(1)
+	}
+
+	if *once {
+		if err := runOnce(install, db, *asJSON); err != nil {
+			fmt.Fprintf(os.Stderr, "pledebe: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	if err := serve(install, db, *dataDir, *addr, *interval, *retain); err != nil {
 		fmt.Fprintf(os.Stderr, "pledebe: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run(configRoot, sqliteDir, backupDir string, asJSON bool) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-
+func setup(configRoot, sqliteDir, backupDir string) (*plex.Install, *plex.SQLite, error) {
 	install, err := plex.Discover(configRoot)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	install.BackupDirOverride = backupDir
 
 	db, err := plex.FindSQLite(sqliteDir)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
+	return install, db, nil
+}
 
-	metrics, err := install.Collect(ctx, db)
+func runOnce(install *plex.Install, db *plex.SQLite, asJSON bool) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	m, err := install.Collect(ctx, db)
 	if err != nil {
 		return err
 	}
@@ -56,11 +93,91 @@ func run(configRoot, sqliteDir, backupDir string, asJSON bool) error {
 	if asJSON {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
-		return enc.Encode(metrics)
+		return enc.Encode(m)
+	}
+	report(install, db, m)
+	return nil
+}
+
+func serve(install *plex.Install, db *plex.SQLite, dataDir, addr string,
+	interval, retain time.Duration) error {
+
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+		return fmt.Errorf("create data dir: %w", err)
+	}
+	st, err := store.Open(filepath.Join(dataDir, "history.db"))
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+
+	srv, err := web.New(install, st)
+	if err != nil {
+		return err
 	}
 
-	report(install, db, metrics)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	// Collect immediately so the page has something to show, then on a ticker.
+	go collectLoop(ctx, install, db, st, interval, retain)
+
+	httpSrv := &http.Server{
+		Addr:              addr,
+		Handler:           srv.Handler(),
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+
+	go func() {
+		<-ctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = httpSrv.Shutdown(shutdownCtx)
+	}()
+
+	log.Printf("pledebe %s watching %s", version, install.Database)
+	log.Printf("status page on %s, collecting every %s", addr, interval)
+
+	if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
+	log.Print("shut down cleanly")
 	return nil
+}
+
+func collectLoop(ctx context.Context, install *plex.Install, db *plex.SQLite,
+	st *store.Store, interval, retain time.Duration) {
+
+	collect := func() {
+		callCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		defer cancel()
+
+		m, err := install.Collect(callCtx, db)
+		if err != nil {
+			log.Printf("collect failed: %v", err)
+			return
+		}
+		if err := st.Insert(m); err != nil {
+			log.Printf("store failed: %v", err)
+			return
+		}
+		if err := st.Prune(retain); err != nil {
+			log.Printf("prune failed: %v", err)
+		}
+	}
+
+	collect()
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			collect()
+		}
+	}
 }
 
 func report(in *plex.Install, db *plex.SQLite, m *plex.Metrics) {
@@ -78,29 +195,6 @@ func report(in *plex.Install, db *plex.SQLite, m *plex.Metrics) {
 	fmt.Printf("  free pages    : %d (%.1f%%)\n", m.FreelistCount, m.FreeRatio()*100)
 	fmt.Printf("  reclaimable   : at least %s (floor, not an estimate)\n", human(m.FreelistBytes))
 
-	fmt.Println("\nBackups")
-	if m.BackupDirExpected != "" {
-		fmt.Printf("  PMS writes to : %s (its own mount namespace)\n", m.BackupDirExpected)
-	}
-	switch {
-	case m.BackupCount > 0:
-		age := int(time.Since(m.NewestBackupAt).Hours() / 24)
-		fmt.Printf("  searched      : %s\n", m.BackupDirSearched)
-		fmt.Printf("  newest        : %s (%d days old)\n", m.NewestBackup, age)
-		fmt.Printf("  count         : %d\n", m.BackupCount)
-
-	case m.BackupDirExpected != "" && !m.BackupDirVisible:
-		// Critical distinction: we cannot see the location, so we know NOTHING
-		// about backup freshness. Saying "no backups" here would be a confident
-		// false alarm -- it is exactly the bug this branch exists to prevent.
-		fmt.Printf("  UNKNOWN -- cannot see %s from pledebe.\n", m.BackupDirExpected)
-		fmt.Println("  Mount it and pass -backups (or PLEX_BACKUP_DIR) to check freshness.")
-
-	default:
-		fmt.Printf("  none found in %s\n", orNone(m.BackupDirSearched))
-		fmt.Println("  (PMS may be writing elsewhere -- check ButlerDatabaseBackupPath)")
-	}
-
 	fmt.Println("\nEnvironment")
 	if m.PMSVersion != "" {
 		fmt.Printf("  PMS version   : %s (since %s)\n",
@@ -108,16 +202,15 @@ func report(in *plex.Install, db *plex.SQLite, m *plex.Metrics) {
 	}
 	fmt.Printf("  crash files   : %d total, %d in the last 14 days\n",
 		m.CrashReportCount, m.RecentCrashCount)
-	if !m.NewestCrashAt.IsZero() {
-		fmt.Printf("  newest crash  : %s\n", m.NewestCrashAt.Format("2006-01-02"))
-	}
 	for component, n := range m.CrashesByComponent {
 		fmt.Printf("    %-22s %d\n", component, n)
 	}
 	fmt.Printf("  volume free   : %s\n", human(m.VolumeFreeBytes))
-	if m.VolumeFreeBytes > 0 && m.VolumeFreeBytes < m.DatabaseBytes {
-		fmt.Println("  WARNING: less free space than the database size --")
-		fmt.Println("           a snapshot or repair would not fit")
+
+	fmt.Println("\nFindings")
+	for _, f := range health.Evaluate(m) {
+		fmt.Printf("  [%-7s] %s\n", f.Level, f.Title)
+		fmt.Printf("            %s\n", f.Detail)
 	}
 }
 
@@ -144,6 +237,16 @@ func human(b int64) string {
 func envOr(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
+	}
+	return fallback
+}
+
+func envDuration(key string, fallback time.Duration) time.Duration {
+	if v := os.Getenv(key); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			return d
+		}
+		log.Printf("ignoring invalid %s=%q", key, v)
 	}
 	return fallback
 }

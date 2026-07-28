@@ -35,12 +35,27 @@ Status: **pre-alpha, nothing works yet.** See [docs/platforms.md](docs/platforms
 | # | Milestone | Gate |
 |---|---|---|
 | 0 | ~~Spike — validate the snapshot premise on a real library~~ **done 2026-07-28** | see below |
-| 1 | Walking skeleton: metric poll, verdict, history db, one page | read-only |
+| 1 | ~~Walking skeleton: metric poll, verdict, history db, one page~~ **done** | read-only |
 | 2 | Log tailer, config-driven patterns, rotation handling | |
 | 3 | Fixtures + CI, corrupt/bloated test databases | before any write path |
 | 4 | Guided repair — per-platform command generation (Linux/NAS; Windows stays monitor-only) | |
 | 5 | Automated repair — Docker only, opt-in profile, socket | explicit opt-in |
 | 6 | `upstream-sync.yml`, contract tests, GHCR publish | |
+
+## Running it
+
+```bash
+cp .env.example .env && docker compose up -d
+```
+
+Status page on `http://<host>:8080`. It collects every 15 minutes, keeps 90 days
+of history, and never writes to your Plex data.
+
+For a one-off report without starting the service, add `-once`:
+
+```bash
+docker run --rm -v "/path/to/plex/config:/plexconfig:ro" -v ./plexbin:/plexbin:ro ghcr.io/simonbrooker/pledebe:edge -once
+```
 
 ## Step 0: run the spike
 

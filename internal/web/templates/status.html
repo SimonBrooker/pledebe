@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pledebe — {{.Install.ConfigRoot}}</title>
+<meta http-equiv="refresh" content="60">
+<style>
+  :root {
+    --bg: #fbfbfa; --fg: #1a1a19; --muted: #6b6b66;
+    --line: #e3e3df; --card: #fff;
+    --ok: #2f7d54; --warn: #b4531a; --unknown: #6b6b66;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #17171a; --fg: #e8e8e4; --muted: #9a9a94;
+      --line: #2c2c31; --card: #1e1e22;
+      --ok: #6fbf8f; --warn: #e0925c; --unknown: #9a9a94;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 2rem 1.25rem; background: var(--bg); color: var(--fg);
+    font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 62rem; margin: 0 auto; }
+  h1 { font-size: 1.35rem; margin: 0 0 .25rem; letter-spacing: -.01em; }
+  .sub { color: var(--muted); font-size: .875rem; margin-bottom: 2rem; }
+  h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .07em;
+       color: var(--muted); margin: 2rem 0 .75rem; font-weight: 600; }
+  .findings { display: grid; gap: .5rem; }
+  .finding {
+    background: var(--card); border: 1px solid var(--line);
+    border-left: 3px solid var(--unknown); border-radius: 6px; padding: .7rem .9rem;
+  }
+  .finding.ok { border-left-color: var(--ok); }
+  .finding.warn { border-left-color: var(--warn); }
+  .finding strong { font-weight: 600; }
+  .finding .detail { color: var(--muted); font-size: .875rem; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: .5rem; }
+  .stat { background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: .7rem .9rem; }
+  .stat .label { color: var(--muted); font-size: .75rem; text-transform: uppercase; letter-spacing: .05em; }
+  .stat .value { font-size: 1.15rem; font-variant-numeric: tabular-nums; margin-top: .15rem; }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: .875rem; }
+  th, td { text-align: right; padding: .4rem .6rem; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--muted); font-weight: 600; font-size: .75rem; text-transform: uppercase; letter-spacing: .05em; }
+  td { font-variant-numeric: tabular-nums; }
+  footer { margin-top: 2.5rem; color: var(--muted); font-size: .8rem;
+           border-top: 1px solid var(--line); padding-top: 1rem; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .85em; }
+</style>
+</head>
+<body>
+<main>
+  <h1>pledebe</h1>
+  <div class="sub">
+    {{.Install.Database}}<br>
+    {{if .Metrics.PMSVersion}}Plex {{.Metrics.PMSVersion}} since {{.Metrics.VersionSeenAt.Format "2 Jan 2006"}} · {{end}}
+    last checked {{.Metrics.CollectedAt.Format "15:04:05 MST"}}
+  </div>
+
+  <h2>Findings</h2>
+  <div class="findings">
+    {{range .Findings}}
+    <div class="finding {{.Level}}">
+      <strong>{{.Title}}</strong>
+      <div class="detail">{{.Detail}}</div>
+    </div>
+    {{end}}
+  </div>
+
+  <h2>Current</h2>
+  <div class="grid">
+    <div class="stat"><div class="label">library.db</div><div class="value">{{bytes .Metrics.DatabaseBytes}}</div></div>
+    <div class="stat"><div class="label">blobs.db</div><div class="value">{{bytes .Metrics.BlobsBytes}}</div></div>
+    <div class="stat"><div class="label">WAL</div><div class="value">{{bytes .Metrics.WALBytes}}</div></div>
+    <div class="stat"><div class="label">Free pages</div><div class="value">{{printf "%.1f%%" .FreePercent}}</div></div>
+    <div class="stat"><div class="label">Volume free</div><div class="value">{{bytes .Metrics.VolumeFreeBytes}}</div></div>
+    <div class="stat"><div class="label">Crash files (14d)</div><div class="value">{{.Metrics.RecentCrashCount}}</div></div>
+  </div>
+
+  <h2>History <span style="text-transform:none;letter-spacing:0">({{.SampleCount}} samples)</span></h2>
+  {{if .History}}
+  <div class="scroll">
+    <table>
+      <thead>
+        <tr><th>Collected</th><th>library.db</th><th>blobs.db</th><th>WAL</th><th>Free pages</th><th>Volume free</th></tr>
+      </thead>
+      <tbody>
+        {{range .History}}
+        <tr>
+          <td>{{.CollectedAt.Format "2 Jan 15:04"}}</td>
+          <td>{{bytes .DatabaseBytes}}</td>
+          <td>{{bytes .BlobsBytes}}</td>
+          <td>{{bytes .WALBytes}}</td>
+          <td>{{printf "%d" .FreelistCount}}</td>
+          <td>{{bytes .VolumeFreeBytes}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <p class="sub">No history yet — the first samples appear as they are collected.</p>
+  {{end}}
+
+  <footer>
+    Read-only. pledebe never writes to your Plex database.<br>
+    Search health is not evaluated from database internals — see <code>docs/signals.md</code>.
+  </footer>
+</main>
+</body>
+</html>
