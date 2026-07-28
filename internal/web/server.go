@@ -31,6 +31,7 @@ type Server struct {
 type pageData struct {
 	Install     *plex.Install
 	Metrics     *plex.Metrics
+	Deep        *plex.DeepCheck
 	Findings    []health.Finding
 	History     []*plex.Metrics
 	SampleCount int
@@ -77,11 +78,13 @@ func (s *Server) status(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	count, _ := s.Store.Count()
+	deep, _ := s.Store.LatestDeepCheck()
 
 	data := pageData{
 		Install:     s.Install,
 		Metrics:     latest,
-		Findings:    health.Evaluate(latest),
+		Deep:        deep,
+		Findings:    health.Evaluate(latest, deep),
 		History:     history,
 		SampleCount: count,
 		FreePercent: latest.FreeRatio() * 100,
@@ -100,12 +103,15 @@ func (s *Server) apiLatest(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "no samples yet", http.StatusServiceUnavailable)
 		return
 	}
+	deep, _ := s.Store.LatestDeepCheck()
+
 	w.Header().Set("Content-Type", "application/json")
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	_ = enc.Encode(map[string]any{
-		"metrics":  latest,
-		"findings": health.Evaluate(latest),
+		"metrics":    latest,
+		"deep_check": deep,
+		"findings":   health.Evaluate(latest, deep),
 	})
 }
 

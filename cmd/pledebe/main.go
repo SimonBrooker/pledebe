@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -42,6 +43,8 @@ func main() {
 			"how often to collect metrics")
 		retain = flag.Duration("retain", envDuration("PLEDEBE_RETAIN", 90*24*time.Hour),
 			"how long to keep history")
+		deepHour = flag.Int("deep-hour", envInt("DEEP_CHECK_HOUR", 4),
+			"hour of day (0-23) to run the integrity deep check")
 		once   = flag.Bool("once", false, "collect once, print a report, and exit")
 		asJSON = flag.Bool("json", false, "with -once, emit JSON")
 	)
@@ -61,7 +64,7 @@ func main() {
 		return
 	}
 
-	if err := serve(install, db, *dataDir, *addr, *interval, *retain); err != nil {
+	if err := serve(install, db, *dataDir, *addr, *interval, *retain, *deepHour); err != nil {
 		fmt.Fprintf(os.Stderr, "pledebe: %v\n", err)
 		os.Exit(1)
 	}
@@ -100,7 +103,7 @@ func runOnce(install *plex.Install, db *plex.SQLite, asJSON bool) error {
 }
 
 func serve(install *plex.Install, db *plex.SQLite, dataDir, addr string,
-	interval, retain time.Duration) error {
+	interval, retain time.Duration, deepHour int) error {
 
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return fmt.Errorf("create data dir: %w", err)
@@ -121,6 +124,7 @@ func serve(install *plex.Install, db *plex.SQLite, dataDir, addr string,
 
 	// Collect immediately so the page has something to show, then on a ticker.
 	go collectLoop(ctx, install, db, st, interval, retain)
+	go deepCheckLoop(ctx, install, db, st, filepath.Join(dataDir, "scratch"), deepHour)
 
 	httpSrv := &http.Server{
 		Addr:              addr,
@@ -143,6 +147,62 @@ func serve(install *plex.Install, db *plex.SQLite, dataDir, addr string,
 	}
 	log.Print("shut down cleanly")
 	return nil
+}
+
+// deepCheckLoop runs one integrity verification per day at deepHour, and one
+// shortly after startup if the most recent is older than a day.
+//
+// The snapshot costs a read lock and a file copy — 4s for a 1.1GB library — so
+// it is safe alongside a running Plex, but it is still I/O, hence once daily
+// and outside Plex's default Butler window where possible.
+func deepCheckLoop(ctx context.Context, install *plex.Install, db *plex.SQLite,
+	st *store.Store, scratchDir string, deepHour int) {
+
+	run := func() {
+		last, err := st.LatestDeepCheck()
+		if err == nil && last != nil && time.Since(last.StartedAt) < 20*time.Hour {
+			return
+		}
+
+		log.Print("deep check: starting snapshot")
+		dc, err := install.RunDeepCheck(ctx, db, scratchDir)
+		if err != nil {
+			log.Printf("deep check: %v", err)
+		} else if dc.IntegrityOK {
+			log.Printf("deep check: integrity ok, %.0fs snapshot, %d MB reclaimable",
+				dc.SnapshotSec, dc.ReclaimableBytes/(1<<20))
+		} else {
+			log.Print("deep check: INTEGRITY CHECK FAILED")
+		}
+		// Record failures too — "the check could not run" is information.
+		if dc != nil {
+			if err := st.InsertDeepCheck(dc); err != nil {
+				log.Printf("deep check: store failed: %v", err)
+			}
+		}
+	}
+
+	// Give the first metric collection a moment rather than starting both at
+	// once on a cold container.
+	select {
+	case <-ctx.Done():
+		return
+	case <-time.After(30 * time.Second):
+		run()
+	}
+
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-ticker.C:
+			if now.Hour() == deepHour {
+				run()
+			}
+		}
+	}
 }
 
 func collectLoop(ctx context.Context, install *plex.Install, db *plex.SQLite,
@@ -208,7 +268,7 @@ func report(in *plex.Install, db *plex.SQLite, m *plex.Metrics) {
 	fmt.Printf("  volume free   : %s\n", human(m.VolumeFreeBytes))
 
 	fmt.Println("\nFindings")
-	for _, f := range health.Evaluate(m) {
+	for _, f := range health.Evaluate(m, nil) {
 		fmt.Printf("  [%-7s] %s\n", f.Level, f.Title)
 		fmt.Printf("            %s\n", f.Detail)
 	}
@@ -245,6 +305,16 @@ func envDuration(key string, fallback time.Duration) time.Duration {
 	if v := os.Getenv(key); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {
 			return d
+		}
+		log.Printf("ignoring invalid %s=%q", key, v)
+	}
+	return fallback
+}
+
+func envInt(key string, fallback int) int {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
 		}
 		log.Printf("ignoring invalid %s=%q", key, v)
 	}

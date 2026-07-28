@@ -49,8 +49,16 @@ const backupStaleAfter = 8 * 24 * time.Hour
 // WAL is tens of MB; sustained hundreds of MB suggests a stuck reader.
 const walLarge = 512 << 20
 
+// integrityStaleAfter is how long a deep check stays meaningful. Corruption
+// does not appear from nowhere, but a check from last month says little about
+// today.
+const integrityStaleAfter = 48 * time.Hour
+
 // Evaluate produces findings for a metric sample, most important first.
-func Evaluate(m *plex.Metrics) []Finding {
+//
+// dc is the most recent deep check and may be nil — no integrity verification
+// has run yet, which is Unknown, not a fault.
+func Evaluate(m *plex.Metrics, dc *plex.DeepCheck) []Finding {
 	var warn, unknown, ok []Finding
 
 	add := func(f Finding) {
@@ -64,13 +72,60 @@ func Evaluate(m *plex.Metrics) []Finding {
 		}
 	}
 
+	add(integrityFinding(dc))
 	add(backupFinding(m))
 	add(diskFinding(m))
 	add(crashFinding(m))
 	add(walFinding(m))
-	add(bloatFinding(m))
+	add(bloatFinding(m, dc))
 
 	return append(append(warn, unknown...), ok...)
+}
+
+// integrityFinding reports PRAGMA integrity_check against the most recent
+// snapshot. This is the main-database check and is trustworthy — unlike the FTS
+// integrity-check, which fires on healthy databases and is not run at all.
+func integrityFinding(dc *plex.DeepCheck) Finding {
+	if dc == nil {
+		return Finding{LevelUnknown, "Integrity not yet checked",
+			"the first deep check has not completed"}
+	}
+
+	if dc.Err != "" {
+		// A check that could not run tells us nothing about the database.
+		return Finding{LevelUnknown, "Integrity check could not run", dc.Err}
+	}
+
+	age := time.Since(dc.StartedAt)
+	when := fmt.Sprintf("checked %s ago in %.0fs", roundDuration(age), dc.Duration.Seconds())
+
+	if !dc.IntegrityOK {
+		detail := dc.IntegrityDetail
+		if detail == "" {
+			detail = "integrity_check did not return ok"
+		}
+		return Finding{LevelWarn, "Database integrity check FAILED", detail}
+	}
+
+	if age > integrityStaleAfter {
+		return Finding{LevelUnknown, "Integrity check is stale",
+			fmt.Sprintf("last passed %s ago", roundDuration(age))}
+	}
+
+	return Finding{LevelOK, "Database integrity verified", when}
+}
+
+func roundDuration(d time.Duration) string {
+	switch {
+	case d < time.Minute:
+		return "less than a minute"
+	case d < time.Hour:
+		return fmt.Sprintf("%d minutes", int(d.Minutes()))
+	case d < 48*time.Hour:
+		return fmt.Sprintf("%d hours", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%d days", int(d.Hours()/24))
+	}
 }
 
 func backupFinding(m *plex.Metrics) Finding {
@@ -139,13 +194,25 @@ func walFinding(m *plex.Metrics) Finding {
 // bloatFinding never warns. The freelist is a floor on reclaimable space and
 // under-reported by 14x in testing, so it can only justify running a deep
 // check -- never a claim about how much space a user would get back.
-func bloatFinding(m *plex.Metrics) Finding {
+//
+// Once a deep check has run we have the exact figure and use that instead.
+func bloatFinding(m *plex.Metrics, dc *plex.DeepCheck) Finding {
+	if dc != nil && dc.Err == "" && dc.SnapshotBytes > 0 {
+		pct := float64(dc.ReclaimableBytes) / float64(dc.DatabaseBytes) * 100
+		detail := fmt.Sprintf("%s reclaimable of %s (%.1f%%), measured exactly",
+			humanBytes(dc.ReclaimableBytes), humanBytes(dc.DatabaseBytes), pct)
+		if pct > 25 {
+			return Finding{LevelUnknown, "Database is bloated", detail}
+		}
+		return Finding{LevelOK, "No significant bloat", detail}
+	}
+
 	if m.FreeRatio() > 0.30 {
 		return Finding{LevelUnknown, "Database may be bloated",
 			fmt.Sprintf("%.0f%% free pages -- a deep check would measure it exactly", m.FreeRatio()*100)}
 	}
 	return Finding{LevelOK, "No significant bloat",
-		fmt.Sprintf("%.1f%% free pages", m.FreeRatio()*100)}
+		fmt.Sprintf("%.1f%% free pages (floor only)", m.FreeRatio()*100)}
 }
 
 func humanBytes(b int64) string {

@@ -9,6 +9,7 @@ package store
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -50,7 +51,7 @@ func Open(path string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open history db: %w", err)
 	}
-	if _, err := db.Exec(schema); err != nil {
+	if _, err := db.Exec(schema + deepCheckSchema); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("create schema: %w", err)
 	}
@@ -136,4 +137,74 @@ func (s *Store) Prune(retain time.Duration) error {
 	cutoff := time.Now().Add(-retain)
 	_, err := s.db.Exec(`DELETE FROM samples WHERE collected_at < ?`, cutoff)
 	return err
+}
+
+const deepCheckSchema = `
+CREATE TABLE IF NOT EXISTS deep_checks (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    started_at         DATETIME NOT NULL,
+    integrity_ok       INTEGER  NOT NULL,
+    reclaimable_bytes  INTEGER  NOT NULL,
+    error              TEXT,
+    raw                TEXT     NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_deep_checks_started_at ON deep_checks(started_at DESC);
+`
+
+// InsertDeepCheck records one integrity verification.
+func (s *Store) InsertDeepCheck(dc *plex.DeepCheck) error {
+	raw, err := json.Marshal(dc)
+	if err != nil {
+		return fmt.Errorf("marshal deep check: %w", err)
+	}
+	_, err = s.db.Exec(`
+        INSERT INTO deep_checks (started_at, integrity_ok, reclaimable_bytes, error, raw)
+        VALUES (?,?,?,?,?)`,
+		dc.StartedAt, dc.IntegrityOK, dc.ReclaimableBytes, dc.Err, string(raw))
+	if err != nil {
+		return fmt.Errorf("insert deep check: %w", err)
+	}
+	return nil
+}
+
+// LatestDeepCheck returns the most recent deep check, or nil if none have run.
+func (s *Store) LatestDeepCheck() (*plex.DeepCheck, error) {
+	var raw string
+	err := s.db.QueryRow(
+		`SELECT raw FROM deep_checks ORDER BY started_at DESC LIMIT 1`).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("query deep check: %w", err)
+	}
+	dc := &plex.DeepCheck{}
+	if err := json.Unmarshal([]byte(raw), dc); err != nil {
+		return nil, fmt.Errorf("decode deep check: %w", err)
+	}
+	return dc, nil
+}
+
+// RecentDeepChecks returns up to limit deep checks, newest first.
+func (s *Store) RecentDeepChecks(limit int) ([]*plex.DeepCheck, error) {
+	rows, err := s.db.Query(
+		`SELECT raw FROM deep_checks ORDER BY started_at DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("query deep checks: %w", err)
+	}
+	defer rows.Close()
+
+	var out []*plex.DeepCheck
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			return nil, err
+		}
+		dc := &plex.DeepCheck{}
+		if err := json.Unmarshal([]byte(raw), dc); err != nil {
+			continue
+		}
+		out = append(out, dc)
+	}
+	return out, rows.Err()
 }

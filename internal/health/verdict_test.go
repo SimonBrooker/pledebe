@@ -26,7 +26,7 @@ func TestInvisibleBackupDirIsUnknownNotWarning(t *testing.T) {
 		BackupDirExpected: "/backup/Databases",
 	}
 
-	f, ok := find(Evaluate(m), "Backup freshness unknown")
+	f, ok := find(Evaluate(m, nil), "Backup freshness unknown")
 	if !ok {
 		t.Fatal("expected an unknown finding for an unreachable backup directory")
 	}
@@ -39,7 +39,7 @@ func TestInvisibleBackupDirIsUnknownNotWarning(t *testing.T) {
 func TestVisibleButEmptyBackupDirWarns(t *testing.T) {
 	m := &plex.Metrics{BackupCount: 0, BackupDirVisible: true, BackupDirSearched: "/plexbackups"}
 
-	f, ok := find(Evaluate(m), "No database backups found")
+	f, ok := find(Evaluate(m, nil), "No database backups found")
 	if !ok || f.Level != LevelWarn {
 		t.Errorf("expected a warning; got %+v (ok=%v)", f, ok)
 	}
@@ -66,7 +66,7 @@ func TestBackupFreshness(t *testing.T) {
 				NewestBackupAt:   time.Now().Add(-tc.age),
 				NewestBackup:     "com.plexapp.plugins.library.db-2026-07-27",
 			}
-			for _, f := range Evaluate(m) {
+			for _, f := range Evaluate(m, nil) {
 				if f.Title == "Database backups current" && tc.want == LevelOK {
 					return
 				}
@@ -96,7 +96,7 @@ func TestDiskHeadroom(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			m := &plex.Metrics{DatabaseBytes: dbSize, VolumeFreeBytes: tc.free}
 			var got Level
-			for _, f := range Evaluate(m) {
+			for _, f := range Evaluate(m, nil) {
 				if f.Title == "Free space sufficient" ||
 					f.Title == "Not enough free space to repair safely" ||
 					f.Title == "Not enough free space for a snapshot" {
@@ -115,7 +115,7 @@ func TestDiskHeadroom(t *testing.T) {
 func TestBloatNeverWarns(t *testing.T) {
 	m := &plex.Metrics{PageCount: 1000, FreelistCount: 900, PageSize: 4096}
 
-	for _, f := range Evaluate(m) {
+	for _, f := range Evaluate(m, nil) {
 		if f.Level == LevelWarn {
 			t.Errorf("bloat produced a warning (%q); it must only ever be informational", f.Title)
 		}
@@ -132,7 +132,7 @@ func TestFindingsAreOrderedBySeverity(t *testing.T) {
 		RecentCrashCount:  0,                   // healthy
 	}
 
-	findings := Evaluate(m)
+	findings := Evaluate(m, nil)
 	seenNonWarn := false
 	for _, f := range findings {
 		if f.Level != LevelWarn {
@@ -140,5 +140,80 @@ func TestFindingsAreOrderedBySeverity(t *testing.T) {
 		} else if seenNonWarn {
 			t.Fatalf("warning %q appears after a lower-severity finding", f.Title)
 		}
+	}
+}
+
+// No deep check yet is Unknown, not a fault. Same for a check that could not
+// run: neither tells us anything about the database.
+func TestIntegrityUnknownStates(t *testing.T) {
+	cases := []struct {
+		name  string
+		deep  *plex.DeepCheck
+		title string
+	}{
+		{"never run", nil, "Integrity not yet checked"},
+		{"could not run",
+			&plex.DeepCheck{StartedAt: time.Now(), Err: "need ~1400 MB free in scratch, have 200 MB"},
+			"Integrity check could not run"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f, ok := find(Evaluate(&plex.Metrics{}, tc.deep), tc.title)
+			if !ok {
+				t.Fatalf("no finding titled %q", tc.title)
+			}
+			if f.Level != LevelUnknown {
+				t.Errorf("Level = %q, want %q", f.Level, LevelUnknown)
+			}
+		})
+	}
+}
+
+// A failed integrity_check is the one database-internal signal we trust enough
+// to warn on -- unlike the FTS check, which is never run.
+func TestFailedIntegrityWarns(t *testing.T) {
+	dc := &plex.DeepCheck{
+		StartedAt:       time.Now(),
+		IntegrityOK:     false,
+		IntegrityDetail: "row 12 missing from index idx_metadata_items",
+	}
+
+	f, ok := find(Evaluate(&plex.Metrics{}, dc), "Database integrity check FAILED")
+	if !ok || f.Level != LevelWarn {
+		t.Errorf("expected a warning; got %+v (ok=%v)", f, ok)
+	}
+}
+
+func TestPassingIntegrityIsOKThenStale(t *testing.T) {
+	fresh := &plex.DeepCheck{StartedAt: time.Now(), IntegrityOK: true}
+	if f, ok := find(Evaluate(&plex.Metrics{}, fresh), "Database integrity verified"); !ok || f.Level != LevelOK {
+		t.Errorf("fresh check: got %+v (ok=%v), want an OK finding", f, ok)
+	}
+
+	old := &plex.DeepCheck{StartedAt: time.Now().Add(-5 * 24 * time.Hour), IntegrityOK: true}
+	if f, ok := find(Evaluate(&plex.Metrics{}, old), "Integrity check is stale"); !ok || f.Level != LevelUnknown {
+		t.Errorf("stale check: got %+v (ok=%v), want an Unknown finding", f, ok)
+	}
+}
+
+// With a real measurement available, bloat reports the exact figure rather than
+// the freelist floor -- but still never warns.
+func TestBloatUsesExactMeasurementAndStillNeverWarns(t *testing.T) {
+	dc := &plex.DeepCheck{
+		StartedAt:        time.Now(),
+		IntegrityOK:      true,
+		DatabaseBytes:    1 << 30,
+		SnapshotBytes:    1 << 29,
+		ReclaimableBytes: 1 << 29, // 50% reclaimable
+	}
+
+	for _, f := range Evaluate(&plex.Metrics{}, dc) {
+		if f.Title == "Database is bloated" && f.Level == LevelWarn {
+			t.Error("bloat must never warn, even when measured exactly")
+		}
+	}
+	if _, ok := find(Evaluate(&plex.Metrics{}, dc), "Database is bloated"); !ok {
+		t.Error("expected the exact measurement to be reported")
 	}
 }

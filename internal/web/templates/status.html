@@ -71,6 +71,30 @@
     {{end}}
   </div>
 
+  <h2>Integrity</h2>
+  {{if .Deep}}
+    {{if .Deep.Err}}
+      <div class="finding"><strong>Last deep check could not run</strong>
+        <div class="detail">{{.Deep.Err}}</div></div>
+    {{else}}
+    <div class="grid">
+      <div class="stat"><div class="label">integrity_check</div>
+        <div class="value">{{if .Deep.IntegrityOK}}ok{{else}}FAILED{{end}}</div></div>
+      <div class="stat"><div class="label">Reclaimable (exact)</div>
+        <div class="value">{{bytes .Deep.ReclaimableBytes}}</div></div>
+      <div class="stat"><div class="label">Snapshot took</div>
+        <div class="value">{{printf "%.0fs" .Deep.SnapshotSec}}</div></div>
+      <div class="stat"><div class="label">Check took</div>
+        <div class="value">{{printf "%.0fs" .Deep.CheckSec}}</div></div>
+      <div class="stat"><div class="label">Last run</div>
+        <div class="value">{{.Deep.StartedAt.Format "2 Jan 15:04"}}</div></div>
+    </div>
+    {{end}}
+  {{else}}
+  <p class="sub">No deep check has run yet. It snapshots the database with
+    <code>VACUUM INTO</code> and verifies the copy, so Plex is never blocked.</p>
+  {{end}}
+
   <h2>Current</h2>
   <div class="grid">
     <div class="stat"><div class="label">library.db</div><div class="value">{{bytes .Metrics.DatabaseBytes}}</div></div>
