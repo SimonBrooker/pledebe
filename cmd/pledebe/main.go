@@ -114,7 +114,7 @@ func serve(install *plex.Install, db *plex.SQLite, dataDir, addr string,
 	}
 	defer st.Close()
 
-	srv, err := web.New(install, st)
+	srv, err := web.New(install, db.BinaryPath, version, st)
 	if err != nil {
 		return err
 	}

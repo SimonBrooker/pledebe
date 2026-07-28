@@ -1,8 +1,9 @@
 // Package web serves the status page.
 //
-// Server-rendered HTML with no JavaScript build step: the page is a status
-// readout and a history table, and a bundler would be the largest maintenance
-// burden in the project for no benefit. It refreshes with a meta tag.
+// Server-rendered HTML with no JavaScript build step, and no JavaScript at all:
+// the page is a status readout, the "more history" disclosure is a <details>
+// element, and it refreshes with a meta tag. It therefore prints, works in any
+// browser, and cannot break in a way that hides a finding.
 package web
 
 import (
@@ -11,6 +12,9 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/SimonBrooker/pledebe/internal/health"
 	"github.com/SimonBrooker/pledebe/internal/plex"
@@ -20,33 +24,59 @@ import (
 //go:embed templates/*.html
 var templateFS embed.FS
 
+// recentDays is how many daily rows appear before the "more" disclosure.
+const recentDays = 7
+
+// historyDepth bounds how much history the page renders at all.
+const historyDepth = 90
+
 // Server renders the status page from stored history.
 type Server struct {
-	Install *plex.Install
-	Store   *store.Store
+	Install    *plex.Install
+	SQLitePath string
+	Version    string
+	Store      *store.Store
 
 	tmpl *template.Template
 }
 
 type pageData struct {
-	Install     *plex.Install
-	Metrics     *plex.Metrics
-	Deep        *plex.DeepCheck
-	Findings    []health.Finding
-	History     []*plex.Metrics
+	Install    *plex.Install
+	SQLitePath string
+	Version    string
+
+	Metrics  *plex.Metrics
+	Deep     *plex.DeepCheck
+	Summary  health.Summary
+	Findings []health.Finding
+
+	RecentDays  []store.DailySample
+	OlderDays   []store.DailySample
+	DayCount    int
 	SampleCount int
+
 	FreePercent float64
 }
 
 // New builds a server, parsing templates up front so a template error surfaces
 // at startup rather than on the first request.
-func New(install *plex.Install, st *store.Store) (*Server, error) {
-	funcs := template.FuncMap{"bytes": humanBytes}
+func New(install *plex.Install, sqlitePath, version string, st *store.Store) (*Server, error) {
+	funcs := template.FuncMap{
+		"bytes": humanBytes,
+		// Accepts any integer width: the metrics mix int and int64, and a
+		// template type mismatch is a runtime failure, not a compile one.
+		"num": numAny,
+		"ago": ago,
+		"pct": func(part, whole int64) string { return percent(part, whole) },
+	}
 	tmpl, err := template.New("").Funcs(funcs).ParseFS(templateFS, "templates/*.html")
 	if err != nil {
 		return nil, fmt.Errorf("parse templates: %w", err)
 	}
-	return &Server{Install: install, Store: st, tmpl: tmpl}, nil
+	return &Server{
+		Install: install, SQLitePath: sqlitePath, Version: version,
+		Store: st, tmpl: tmpl,
+	}, nil
 }
 
 // Handler returns the HTTP routes.
@@ -72,22 +102,33 @@ func (s *Server) status(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 
-	history, err := s.Store.Recent(50)
+	deep, _ := s.Store.LatestDeepCheck()
+	findings := health.Evaluate(latest, deep)
+
+	days, err := s.Store.RecentDays(historyDepth)
 	if err != nil {
 		http.Error(w, "reading history: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	count, _ := s.Store.Count()
-	deep, _ := s.Store.LatestDeepCheck()
+	sampleCount, _ := s.Store.Count()
+	dayCount, _ := s.Store.DayCount()
 
 	data := pageData{
 		Install:     s.Install,
+		SQLitePath:  s.SQLitePath,
+		Version:     s.Version,
 		Metrics:     latest,
 		Deep:        deep,
-		Findings:    health.Evaluate(latest, deep),
-		History:     history,
-		SampleCount: count,
+		Summary:     health.Summarise(findings),
+		Findings:    findings,
+		DayCount:    dayCount,
+		SampleCount: sampleCount,
 		FreePercent: latest.FreeRatio() * 100,
+	}
+	if len(days) > recentDays {
+		data.RecentDays, data.OlderDays = days[:recentDays], days[recentDays:]
+	} else {
+		data.RecentDays = days
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -104,14 +145,16 @@ func (s *Server) apiLatest(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	deep, _ := s.Store.LatestDeepCheck()
+	findings := health.Evaluate(latest, deep)
 
 	w.Header().Set("Content-Type", "application/json")
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	_ = enc.Encode(map[string]any{
+		"summary":    health.Summarise(findings),
+		"findings":   findings,
 		"metrics":    latest,
 		"deep_check": deep,
-		"findings":   health.Evaluate(latest, deep),
 	})
 }
 
@@ -126,4 +169,68 @@ func humanBytes(b int64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
+}
+
+// numAny formats any integer type with digit grouping. html/template resolves
+// argument types at execution time, so a func(int64) silently fails on an int
+// field — caught only when the page is actually rendered.
+func numAny(v any) string {
+	switch n := v.(type) {
+	case int:
+		return comma(int64(n))
+	case int32:
+		return comma(int64(n))
+	case int64:
+		return comma(n)
+	case uint:
+		return comma(int64(n))
+	case uint64:
+		return comma(int64(n))
+	default:
+		return fmt.Sprint(v)
+	}
+}
+
+// comma groups digits. Page counts and document counts run to seven figures,
+// where unseparated digits are genuinely hard to compare between rows.
+func comma(n int64) string {
+	s := strconv.FormatInt(n, 10)
+	neg := strings.HasPrefix(s, "-")
+	s = strings.TrimPrefix(s, "-")
+
+	var out strings.Builder
+	for i, r := range s {
+		if i > 0 && (len(s)-i)%3 == 0 {
+			out.WriteByte(',')
+		}
+		out.WriteRune(r)
+	}
+	if neg {
+		return "-" + out.String()
+	}
+	return out.String()
+}
+
+func percent(part, whole int64) string {
+	if whole == 0 {
+		return "—"
+	}
+	return fmt.Sprintf("%.1f%%", float64(part)/float64(whole)*100)
+}
+
+func ago(t time.Time) string {
+	if t.IsZero() {
+		return "never"
+	}
+	d := time.Since(t)
+	switch {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		return fmt.Sprintf("%d min ago", int(d.Minutes()))
+	case d < 48*time.Hour:
+		return fmt.Sprintf("%d hours ago", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%d days ago", int(d.Hours()/24))
+	}
 }
