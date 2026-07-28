@@ -2,6 +2,7 @@ package plex
 
 import (
 	"context"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -54,9 +55,13 @@ type Metrics struct {
 	// "Crash Reports" contains one directory per PMS version ever installed —
 	// 171 of them on a long-lived server going back years. Counting entries
 	// reports version history as crashes. Verified 2026-07-28.
-	CrashReportCount  int       `json:"crash_report_count"`
-	RecentCrashCount  int       `json:"recent_crash_count"`
-	NewestCrashAt     time.Time `json:"newest_crash_at,omitempty"`
+	CrashReportCount int       `json:"crash_report_count"`
+	RecentCrashCount int       `json:"recent_crash_count"`
+	NewestCrashAt    time.Time `json:"newest_crash_at,omitempty"`
+
+	// CrashesByComponent splits crashes by the component that produced them —
+	// "PLEX MEDIA SERVER", "PLEX MEDIA SCANNER", "PLEX TUNER SERVICE".
+	CrashesByComponent map[string]int `json:"crashes_by_component,omitempty"`
 
 	// PMSVersion is inferred from the newest "Crash Reports" subdirectory, and
 	// VersionSeenAt is when that directory appeared — an approximate upgrade
@@ -166,14 +171,19 @@ func (in *Install) scanBackupDir(dir string, m *Metrics) {
 // history; a cluster in the last fortnight is a signal.
 const recentCrashWindow = 14 * 24 * time.Hour
 
-// collectCrashes walks "Crash Reports", which is laid out as one directory per
-// PMS version containing the actual crash files:
+// collectCrashes walks "Crash Reports". Verified layout, 2026-07-28:
 //
-//	Crash Reports/1.43.3.10828-00f62d37d/<crash files>
-//	Crash Reports/1.43.2.10687-563d026ea/<crash files>
+//	Crash Reports/1.43.3.10828-00f62d37d/PLEX MEDIA SERVER/<crash files>
+//	Crash Reports/1.43.3.10828-00f62d37d/PLEX MEDIA SCANNER/<crash files>
+//	Crash Reports/1.43.3.10828-00f62d37d/PLEX TUNER SERVICE/<crash files>
 //
-// We count files, not directories, and take the newest directory as the running
-// version.
+// Two levels, not one. An earlier version counted top-level entries and
+// reported 171 PMS *versions* as 171 crashes; its replacement read only one
+// level down and would have reported zero however many crashes existed. Walk
+// the whole tree.
+//
+// The component directory is worth keeping: "the Scanner crashed" and "the
+// Server crashed" are different problems.
 func (in *Install) collectCrashes(m *Metrics) {
 	root := filepath.Join(in.ConfigRoot, "Crash Reports")
 
@@ -183,37 +193,50 @@ func (in *Install) collectCrashes(m *Metrics) {
 	}
 
 	cutoff := time.Now().Add(-recentCrashWindow)
+	m.CrashesByComponent = make(map[string]int)
 
 	for _, v := range versions {
 		if !v.IsDir() {
 			continue
 		}
-		info, err := v.Info()
-		if err == nil && info.ModTime().After(m.VersionSeenAt) {
+		if info, err := v.Info(); err == nil && info.ModTime().After(m.VersionSeenAt) {
 			m.VersionSeenAt = info.ModTime()
 			m.PMSVersion = v.Name()
 		}
 
-		files, err := os.ReadDir(filepath.Join(root, v.Name()))
-		if err != nil {
-			continue
-		}
-		for _, f := range files {
-			if f.IsDir() {
-				continue
-			}
-			m.CrashReportCount++
-			fi, err := f.Info()
+		versionDir := filepath.Join(root, v.Name())
+		_ = filepath.WalkDir(versionDir, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
-				continue
+				if d != nil && d.IsDir() {
+					return fs.SkipDir
+				}
+				return nil
 			}
-			if fi.ModTime().After(m.NewestCrashAt) {
-				m.NewestCrashAt = fi.ModTime()
+			if d.IsDir() {
+				return nil
 			}
-			if fi.ModTime().After(cutoff) {
+
+			m.CrashReportCount++
+
+			// Component is the first path element below the version directory.
+			if rel, relErr := filepath.Rel(versionDir, path); relErr == nil {
+				if parts := strings.Split(rel, string(os.PathSeparator)); len(parts) > 1 {
+					m.CrashesByComponent[parts[0]]++
+				}
+			}
+
+			info, infoErr := d.Info()
+			if infoErr != nil {
+				return nil
+			}
+			if info.ModTime().After(m.NewestCrashAt) {
+				m.NewestCrashAt = info.ModTime()
+			}
+			if info.ModTime().After(cutoff) {
 				m.RecentCrashCount++
 			}
-		}
+			return nil
+		})
 	}
 }
 

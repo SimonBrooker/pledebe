@@ -111,6 +111,9 @@ func report(in *plex.Install, db *plex.SQLite, m *plex.Metrics) {
 	if !m.NewestCrashAt.IsZero() {
 		fmt.Printf("  newest crash  : %s\n", m.NewestCrashAt.Format("2006-01-02"))
 	}
+	for component, n := range m.CrashesByComponent {
+		fmt.Printf("    %-22s %d\n", component, n)
+	}
 	fmt.Printf("  volume free   : %s\n", human(m.VolumeFreeBytes))
 	if m.VolumeFreeBytes > 0 && m.VolumeFreeBytes < m.DatabaseBytes {
 		fmt.Println("  WARNING: less free space than the database size --")
