@@ -343,12 +343,19 @@
         <div><dt>Plex version</dt><dd style="font-size:.82rem">{{.Metrics.PMSVersion}}</dd></div>
         <div><dt>Installed</dt><dd>{{.Metrics.VersionSeenAt.Format "2 Jan 2006"}}</dd></div>
         {{end}}
-        <div><dt>Crash files</dt><dd>{{num .Metrics.CrashReportCount}}</dd></div>
-        <div><dt>Crashes 14d</dt><dd>{{num .Metrics.RecentCrashCount}}</dd></div>
+        <div><dt>Crashes, all time</dt><dd>{{num .Metrics.CrashReportCount}}</dd></div>
+        <div><dt>Crashes, last 14 days</dt><dd>{{num .Metrics.RecentCrashCount}}</dd></div>
+        {{if not .Metrics.NewestCrashAt.IsZero}}
+        <div><dt>Most recent crash</dt><dd>{{.Metrics.NewestCrashAt.Format "2 Jan 2006"}}</dd></div>
+        {{end}}
         <div><dt>Volume free</dt><dd>{{bytes .Metrics.VolumeFreeBytes}}</dd></div>
       </dl>
       {{if .Metrics.CrashesByComponent}}
-      <dl class="kv">
+      <p class="runbox-note" style="margin-top:.8rem">
+        Crash reports by component, counted across every Plex version ever installed on
+        this server — not recent activity. Only the 14-day figure above raises a finding.
+      </p>
+      <dl class="kv" style="margin-top:.4rem">
         {{range $component, $n := .Metrics.CrashesByComponent}}<dt>{{$component}}</dt><dd>{{$n}}</dd>{{end}}
       </dl>
       {{end}}
