@@ -7,6 +7,7 @@
 package web
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -37,7 +38,8 @@ type Server struct {
 	Version    string
 	Store      *store.Store
 
-	tmpl *template.Template
+	runner *deepRunner
+	tmpl   *template.Template
 }
 
 type pageData struct {
@@ -56,11 +58,15 @@ type pageData struct {
 	SampleCount int
 
 	FreePercent float64
+	DeepRun     deepStatus
 }
 
 // New builds a server, parsing templates up front so a template error surfaces
 // at startup rather than on the first request.
-func New(install *plex.Install, sqlitePath, version string, st *store.Store) (*Server, error) {
+// New builds a server. runDeep may be nil, in which case the page offers no
+// button — a deployment that cannot run checks should not pretend it can.
+func New(install *plex.Install, sqlitePath, version string, st *store.Store,
+	runDeep func(context.Context) error) (*Server, error) {
 	funcs := template.FuncMap{
 		"bytes": humanBytes,
 		// Accepts any integer width: the metrics mix int and int64, and a
@@ -73,16 +79,21 @@ func New(install *plex.Install, sqlitePath, version string, st *store.Store) (*S
 	if err != nil {
 		return nil, fmt.Errorf("parse templates: %w", err)
 	}
-	return &Server{
+	srv := &Server{
 		Install: install, SQLitePath: sqlitePath, Version: version,
 		Store: st, tmpl: tmpl,
-	}, nil
+	}
+	if runDeep != nil {
+		srv.runner = &deepRunner{run: runDeep}
+	}
+	return srv, nil
 }
 
 // Handler returns the HTTP routes.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", s.status)
+	mux.HandleFunc("POST /deepcheck", s.postDeepCheck)
 	mux.HandleFunc("GET /api/latest", s.apiLatest)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -125,6 +136,15 @@ func (s *Server) status(w http.ResponseWriter, _ *http.Request) {
 		SampleCount: sampleCount,
 		FreePercent: latest.FreeRatio() * 100,
 	}
+
+	cost := &deepCheckCost{
+		DatabaseBytes: latest.DatabaseBytes,
+		FreeBytes:     latest.VolumeFreeBytes,
+	}
+	if deep != nil {
+		cost.SnapshotSec, cost.CheckSec = deep.SnapshotSec, deep.CheckSec
+	}
+	data.DeepRun = s.deepStatus(cost)
 	if len(days) > recentDays {
 		data.RecentDays, data.OlderDays = days[:recentDays], days[recentDays:]
 	} else {

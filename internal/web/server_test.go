@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -40,7 +41,7 @@ func newTestServer(t *testing.T, m *plex.Metrics, dc *plex.DeepCheck) http.Handl
 		Database:   "/plexconfig/Plug-in Support/Databases/com.plexapp.plugins.library.db",
 		LogDir:     "/plexconfig/Logs",
 	}
-	srv, err := New(install, "/plexbin/Plex SQLite", "test", st)
+	srv, err := New(install, "/plexbin/Plex SQLite", "test", st, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,5 +176,106 @@ func TestComma(t *testing.T) {
 		if got := comma(in); got != want {
 			t.Errorf("comma(%d) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func serverWithRunner(t *testing.T, run func(context.Context) error) http.Handler {
+	t.Helper()
+	st, err := store.Open(filepath.Join(t.TempDir(), "history.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	if err := st.Insert(fullMetrics()); err != nil {
+		t.Fatal(err)
+	}
+	srv, err := New(&plex.Install{Database: "/db"}, "/plexbin/Plex SQLite", "test", st, run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return srv.Handler()
+}
+
+func TestDeepCheckButtonAndWarningShown(t *testing.T) {
+	body := render(t, serverWithRunner(t, func(context.Context) error { return nil }))
+
+	if !strings.Contains(body, "Run deep check now") {
+		t.Error("expected the run button")
+	}
+	// The warning must be specific about the cost, and equally specific that
+	// Plex is not blocked -- an admin who thinks it stops playback will never
+	// press it.
+	for _, want := range []string{"heavy disk activity", "never blocked", "deleted afterwards"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("warning is missing %q", want)
+		}
+	}
+}
+
+func TestDeepCheckPostStartsRun(t *testing.T) {
+	started := make(chan struct{})
+	h := serverWithRunner(t, func(context.Context) error {
+		close(started)
+		return nil
+	})
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/deepcheck", nil))
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303 (post/redirect/get)", rec.Code)
+	}
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the deep check was never started")
+	}
+}
+
+// The page has no authentication, so any site the user visits could otherwise
+// POST here and make their server do work.
+func TestDeepCheckRefusesCrossOrigin(t *testing.T) {
+	var called bool
+	h := serverWithRunner(t, func(context.Context) error { called = true; return nil })
+
+	req := httptest.NewRequest(http.MethodPost, "/deepcheck", nil)
+	req.Header.Set("Origin", "https://evil.example")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", rec.Code)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if called {
+		t.Error("a cross-origin POST started a deep check")
+	}
+}
+
+func TestDeepCheckAcceptsSameOrigin(t *testing.T) {
+	h := serverWithRunner(t, func(context.Context) error { return nil })
+
+	req := httptest.NewRequest(http.MethodPost, "/deepcheck", nil)
+	req.Header.Set("Origin", "http://"+req.Host)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Errorf("status = %d, want 303", rec.Code)
+	}
+}
+
+// Without a runner the page must not offer a button it cannot honour.
+func TestDeepCheckUnavailableWithoutRunner(t *testing.T) {
+	h := newTestServer(t, fullMetrics(), nil)
+
+	if strings.Contains(render(t, h), "Run deep check now") {
+		t.Error("button offered with no runner configured")
+	}
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/deepcheck", nil))
+	if rec.Code != http.StatusNotImplemented {
+		t.Errorf("status = %d, want 501", rec.Code)
 	}
 }

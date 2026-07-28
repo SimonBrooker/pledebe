@@ -124,7 +124,17 @@ func serve(install *plex.Install, db *plex.SQLite, dataDir, addr string,
 	}
 	defer st.Close()
 
-	srv, err := web.New(install, db.BinaryPath, version, st)
+	deepFn := func(ctx context.Context) error {
+		dc, err := install.RunDeepCheck(ctx, db, filepath.Join(dataDir, "scratch"))
+		if dc != nil {
+			if storeErr := st.InsertDeepCheck(dc); storeErr != nil {
+				log.Printf("deep check: store failed: %v", storeErr)
+			}
+		}
+		return err
+	}
+
+	srv, err := web.New(install, db.BinaryPath, version, st, deepFn)
 	if err != nil {
 		return err
 	}

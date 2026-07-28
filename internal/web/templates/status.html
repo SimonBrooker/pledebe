@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>pledebe — {{.Summary.Headline}}</title>
-<meta http-equiv="refresh" content="120">
+{{if .DeepRun.Running}}<meta http-equiv="refresh" content="10">{{else}}<meta http-equiv="refresh" content="120">{{end}}
 <style>
   /* Four states, not three. "Unknown" is first-class: it must read as absence
      of knowledge, never as reassurance or alarm — hence a dashed border and a
@@ -148,6 +148,21 @@
   .bad { color: var(--warn); }
   .scroll-x { overflow-x: auto; }
 
+  .runbox {
+    margin-top: .9rem; padding: .85rem 1rem; border: 1px dashed var(--line-strong);
+    border-radius: var(--r); display: flex; flex-direction: column; gap: .5rem;
+  }
+  .runbox-note { margin: 0; font-size: .8rem; color: var(--ink-3); max-width: 72ch; }
+  .runbox-note.bad { color: var(--warn); }
+  .runbox form { margin: 0; }
+  .runbox button {
+    font: inherit; font-size: .85rem; font-weight: 600; cursor: pointer;
+    padding: .45rem .9rem; border-radius: var(--r);
+    border: 1px solid var(--accent); background: transparent; color: var(--accent);
+  }
+  .runbox button:hover { background: var(--accent); color: var(--ground); }
+  .runbox button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
   details { margin-top: .5rem; }
   summary {
     cursor: pointer; font-size: .82rem; color: var(--accent);
@@ -239,6 +254,34 @@
         the copy, so Plex is never blocked.
       </p>
       {{end}}
+
+      {{with .DeepRun}}{{if .Available}}
+      <div class="runbox">
+        {{if .Running}}
+          <p class="runbox-note">
+            <strong>Deep check running</strong> — started {{ago .StartedAt}}.
+            This page refreshes on its own; the result appears when it finishes.
+          </p>
+        {{else if .Blocked}}
+          <p class="runbox-note">
+            Cannot run a deep check: {{.Blocked}}.
+          </p>
+        {{else}}
+          <form method="post" action="/deepcheck">
+            <button type="submit">Run deep check now</button>
+          </form>
+          <p class="runbox-note">
+            Reads the whole database to make a verified copy{{if .Estimate}} — {{.Estimate}}{{end}}.
+            Plex keeps running and is never blocked from reading or writing, but this is
+            heavy disk activity: on a busy server, or one with the database on an array
+            rather than an SSD, playback start and library browsing may feel slower while
+            it runs. It needs free space roughly equal to the database size, and the copy
+            is deleted afterwards.
+          </p>
+          {{if .Error}}<p class="runbox-note bad">Last manual run failed: {{.Error}}</p>{{end}}
+        {{end}}
+      </div>
+      {{end}}{{end}}
     </section>
 
     <section>
