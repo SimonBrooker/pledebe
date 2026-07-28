@@ -14,6 +14,10 @@ services:
     ports:
       - "8080:8080"
     environment:
+      # Ownership for pledebe's /data directory. On Unraid, appdata is usually
+      # nobody:users, so set PUID=99 and PGID=100 in .env.
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
       SCAN_INTERVAL: 15m
       PLEDEBE_RETAIN: 2160h # 90 days of history
       TZ: ${TZ:-Etc/UTC}

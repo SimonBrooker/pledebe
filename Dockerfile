@@ -21,11 +21,17 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
 # ~218MB Plex SQLite directory that lives in the data volume.
 FROM alpine:3.20
 
-RUN adduser -D -u 1000 pledebe
+# su-exec lets the entrypoint fix /data ownership as root and then drop
+# privileges, honouring PUID/PGID the way NAS users expect.
+RUN apk add --no-cache su-exec
+
 COPY --from=build /out/pledebe /usr/local/bin/pledebe
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
-# Runs unprivileged. Monitor mode only ever needs read access, and the config
-# volume should be mounted :ro.
-USER pledebe
+# No USER directive: the entrypoint starts as root purely to chown /data, then
+# execs pledebe as PUID:PGID (default 1000:1000). pledebe never serves traffic
+# as root. Pass --user to override entirely.
+ENV PUID=1000 PGID=1000
 
-ENTRYPOINT ["/usr/local/bin/pledebe"]
+ENTRYPOINT ["/entrypoint.sh"]
