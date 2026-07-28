@@ -58,6 +58,7 @@ type pageData struct {
 	SampleCount int
 
 	FreePercent float64
+	Levels      map[string]health.Level
 	DeepRun     deepStatus
 }
 
@@ -135,6 +136,7 @@ func (s *Server) status(w http.ResponseWriter, _ *http.Request) {
 		DayCount:    dayCount,
 		SampleCount: sampleCount,
 		FreePercent: latest.FreeRatio() * 100,
+		Levels:      health.MetricLevels(latest, deep),
 	}
 
 	cost := &deepCheckCost{

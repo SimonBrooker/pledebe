@@ -71,6 +71,7 @@
   }
   .verdict.ok { border-color: var(--ok); background: var(--ok-bg); }
   .verdict.warn { border-color: var(--warn); background: var(--warn-bg); }
+  .verdict.fault { border-color: var(--fault); background: var(--fault-bg); }
   .verdict-mark {
     width: 44px; height: 44px; flex: none; border-radius: 50%;
     display: grid; place-items: center; font-family: var(--mono);
@@ -79,6 +80,7 @@
   }
   .verdict.ok .verdict-mark { border-color: var(--ok); color: var(--ok); }
   .verdict.warn .verdict-mark { border-color: var(--warn); color: var(--warn); }
+  .verdict.fault .verdict-mark { border-color: var(--fault); color: var(--fault); }
   .verdict h2 { margin: 0; font-size: 1.15rem; letter-spacing: -.01em; text-wrap: balance; }
   .verdict p { margin: .15rem 0 0; color: var(--ink-2); font-size: .875rem; }
 
@@ -91,10 +93,18 @@
   }
   .chip.ok { color: var(--ok); background: var(--ok-bg); border-color: var(--ok); }
   .chip.warn { color: var(--warn); background: var(--warn-bg); border-color: var(--warn); }
+  .chip.fault { color: var(--fault); background: var(--fault-bg); border-color: var(--fault); }
   .chip.unknown {
     color: var(--unknown); background: var(--unknown-bg);
     border-color: var(--unknown); border-style: dashed;
   }
+
+  /* Semantic colour on a measured value, applied ONLY where a healthy range
+     exists. Facts -- page size, version, byte totals with no threshold -- stay
+     in the default ink so that a coloured value always means something. */
+  .grid dd.ok { color: var(--ok); }
+  .grid dd.warn { color: var(--warn); }
+  .grid dd.fault { color: var(--fault); }
 
   /* ---- findings ---- */
   .findings { display: flex; flex-direction: column; }
@@ -190,7 +200,7 @@
 
   <div class="verdict {{.Summary.Level}}">
     <div class="verdict-mark" aria-hidden="true">
-      {{if eq .Summary.Level "ok"}}✓{{else if eq .Summary.Level "warn"}}!{{else}}?{{end}}
+      {{if eq .Summary.Level "ok"}}✓{{else if eq .Summary.Level "fault"}}×{{else if eq .Summary.Level "warn"}}!{{else}}?{{end}}
     </div>
     <div>
       <h2>{{.Summary.Headline}}</h2>
@@ -202,7 +212,7 @@
   <div class="findings">
     {{range .Findings}}
     <div class="finding">
-      <span class="chip {{.Level}}">{{if eq .Level "ok"}}Healthy{{else if eq .Level "warn"}}Attention{{else}}Unknown{{end}}</span>
+      <span class="chip {{.Level}}">{{if eq .Level "ok"}}Healthy{{else if eq .Level "fault"}}Fault{{else if eq .Level "warn"}}Attention{{else}}Unknown{{end}}</span>
       <div>
         <h3>{{.Title}}</h3>
         <p>{{.Detail}}</p>
@@ -218,11 +228,11 @@
       <dl class="grid">
         <div><dt>library.db</dt><dd>{{bytes .Metrics.DatabaseBytes}}</dd></div>
         <div><dt>blobs.db</dt><dd>{{bytes .Metrics.BlobsBytes}}</dd></div>
-        <div><dt>Write-ahead log</dt><dd>{{bytes .Metrics.WALBytes}}</dd></div>
+        <div><dt>Write-ahead log</dt><dd class="{{index $.Levels "wal"}}">{{bytes .Metrics.WALBytes}}</dd></div>
         <div><dt>Shared memory</dt><dd>{{bytes .Metrics.SHMBytes}}</dd></div>
         <div><dt>Pages</dt><dd>{{num .Metrics.PageCount}}</dd></div>
         <div><dt>Page size</dt><dd>{{num .Metrics.PageSize}} B</dd></div>
-        <div><dt>Free pages</dt><dd>{{num .Metrics.FreelistCount}} · {{printf "%.1f%%" .FreePercent}}</dd></div>
+        <div><dt>Free pages</dt><dd class="{{index $.Levels "freepages"}}">{{num .Metrics.FreelistCount}} · {{printf "%.1f%%" .FreePercent}}</dd></div>
         <div><dt>Reclaimable floor</dt><dd>{{bytes .Metrics.FreelistBytes}}</dd></div>
       </dl>
     </section>
@@ -236,8 +246,8 @@
         <p style="font-size:.85rem;color:var(--ink-2);margin:0">Could not run: {{.Deep.Err}}</p>
         {{else}}
         <dl class="grid">
-          <div><dt>integrity_check</dt><dd>{{if .Deep.IntegrityOK}}ok{{else}}<span class="bad">FAILED</span>{{end}}</dd></div>
-          <div><dt>Reclaimable (exact)</dt><dd>{{bytes .Deep.ReclaimableBytes}}</dd></div>
+          <div><dt>integrity_check</dt><dd class="{{index $.Levels "integrity"}}">{{if .Deep.IntegrityOK}}Healthy{{else}}FAILED{{end}}</dd></div>
+          <div><dt>Reclaimable (exact)</dt><dd class="{{index $.Levels "reclaimable"}}">{{bytes .Deep.ReclaimableBytes}}</dd></div>
           <div><dt>Snapshot took</dt><dd>{{printf "%.0fs" .Deep.SnapshotSec}}</dd></div>
           <div><dt>Check took</dt><dd>{{printf "%.0fs" .Deep.CheckSec}}</dd></div>
         </dl>
@@ -325,8 +335,8 @@
       {{if .Metrics.BackupCount}}
       <dl class="grid">
         <div><dt>Newest</dt><dd>{{.Metrics.NewestBackupAt.Format "2 Jan"}}</dd></div>
-        <div><dt>Age</dt><dd>{{ago .Metrics.NewestBackupAt}}</dd></div>
-        <div><dt>Kept</dt><dd>{{.Metrics.BackupCount}}</dd></div>
+        <div><dt>Age</dt><dd class="{{index $.Levels "backupage"}}">{{ago .Metrics.NewestBackupAt}}</dd></div>
+        <div><dt>Kept</dt><dd class="{{index $.Levels "backupcount"}}">{{.Metrics.BackupCount}}</dd></div>
       </dl>
       {{else if .Metrics.BackupDirExpected}}
       <p style="font-size:.85rem;color:var(--ink-2);margin:0">
@@ -350,11 +360,11 @@
         <div><dt>Installed</dt><dd>{{.Metrics.VersionSeenAt.Format "2 Jan 2006"}}</dd></div>
         {{end}}
         <div><dt>Crashes, all time</dt><dd>{{num .Metrics.CrashReportCount}}</dd></div>
-        <div><dt>Crashes, last 14 days</dt><dd>{{num .Metrics.RecentCrashCount}}</dd></div>
+        <div><dt>Crashes, last 14 days</dt><dd class="{{index $.Levels "crashes14d"}}">{{num .Metrics.RecentCrashCount}}</dd></div>
         {{if not .Metrics.NewestCrashAt.IsZero}}
         <div><dt>Most recent crash</dt><dd>{{.Metrics.NewestCrashAt.Format "2 Jan 2006"}}</dd></div>
         {{end}}
-        <div><dt>Volume free</dt><dd>{{bytes .Metrics.VolumeFreeBytes}}</dd></div>
+        <div><dt>Volume free</dt><dd class="{{index $.Levels "volumefree"}}">{{bytes .Metrics.VolumeFreeBytes}}</dd></div>
       </dl>
       {{if .Metrics.CrashesByComponent}}
       <p class="runbox-note" style="margin-top:.8rem">

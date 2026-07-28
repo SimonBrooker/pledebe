@@ -39,6 +39,10 @@ const (
 	LevelUnknown Level = "unknown"
 	// LevelWarn means measured, and outside expectations.
 	LevelWarn Level = "warn"
+	// LevelFault means measured, and broken now. Reserved for states that are
+	// unambiguously wrong -- not merely worth attention -- so that red keeps
+	// its meaning.
+	LevelFault Level = "fault"
 )
 
 // Finding is one evaluated signal.
@@ -67,10 +71,12 @@ const integrityStaleAfter = 48 * time.Hour
 // dc is the most recent deep check and may be nil — no integrity verification
 // has run yet, which is Unknown, not a fault.
 func Evaluate(m *plex.Metrics, dc *plex.DeepCheck) []Finding {
-	var warn, unknown, ok []Finding
+	var fault, warn, unknown, ok []Finding
 
 	add := func(f Finding) {
 		switch f.Level {
+		case LevelFault:
+			fault = append(fault, f)
 		case LevelWarn:
 			warn = append(warn, f)
 		case LevelUnknown:
@@ -88,7 +94,7 @@ func Evaluate(m *plex.Metrics, dc *plex.DeepCheck) []Finding {
 	add(walFinding(m))
 	add(bloatFinding(m, dc))
 
-	return append(append(warn, unknown...), ok...)
+	return append(append(append(fault, warn...), unknown...), ok...)
 }
 
 // integrityFinding reports PRAGMA integrity_check against the most recent
@@ -113,7 +119,9 @@ func integrityFinding(dc *plex.DeepCheck) Finding {
 		if detail == "" {
 			detail = "integrity_check did not return ok"
 		}
-		return Finding{LevelWarn, "Database integrity check FAILED", detail}
+		// The most serious thing pledebe can find: the database itself is
+		// damaged. Red is reserved for states like this so it keeps meaning.
+		return Finding{LevelFault, "Database integrity check FAILED", detail}
 	}
 
 	if age > integrityStaleAfter {
@@ -217,7 +225,7 @@ func diskFinding(m *plex.Metrics) Finding {
 	// is the worst outcome available, so this gates deep operations.
 	switch {
 	case m.VolumeFreeBytes < m.DatabaseBytes:
-		return Finding{LevelWarn, "Not enough free space for a snapshot",
+		return Finding{LevelFault, "Not enough free space for a snapshot",
 			fmt.Sprintf("%s free, database is %s", humanBytes(m.VolumeFreeBytes), humanBytes(m.DatabaseBytes))}
 	case m.VolumeFreeBytes < m.DatabaseBytes*3:
 		return Finding{LevelWarn, "Not enough free space to repair safely",

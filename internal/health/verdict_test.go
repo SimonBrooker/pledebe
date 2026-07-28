@@ -90,7 +90,8 @@ func TestDiskHeadroom(t *testing.T) {
 	}{
 		{"plenty", dbSize * 10, LevelOK},
 		{"too tight to repair", dbSize * 2, LevelWarn},
-		{"smaller than the database", dbSize / 2, LevelWarn},
+		// Cannot even take a snapshot: broken now, not merely worth attention.
+		{"smaller than the database", dbSize / 2, LevelFault},
 	}
 
 	for _, tc := range cases {
@@ -171,9 +172,10 @@ func TestIntegrityUnknownStates(t *testing.T) {
 	}
 }
 
-// A failed integrity_check is the one database-internal signal we trust enough
-// to warn on -- unlike the FTS check, which is never run.
-func TestFailedIntegrityWarns(t *testing.T) {
+// A failed integrity_check is the most serious thing pledebe can report: the
+// database itself is damaged. Red is reserved for states like this so that it
+// keeps its meaning.
+func TestFailedIntegrityIsAFault(t *testing.T) {
 	dc := &plex.DeepCheck{
 		StartedAt:       time.Now(),
 		IntegrityOK:     false,
@@ -181,8 +183,8 @@ func TestFailedIntegrityWarns(t *testing.T) {
 	}
 
 	f, ok := find(Evaluate(&plex.Metrics{}, dc), "Database integrity check FAILED")
-	if !ok || f.Level != LevelWarn {
-		t.Errorf("expected a warning; got %+v (ok=%v)", f, ok)
+	if !ok || f.Level != LevelFault {
+		t.Errorf("expected a fault; got %+v (ok=%v)", f, ok)
 	}
 }
 

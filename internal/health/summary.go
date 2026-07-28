@@ -20,9 +20,11 @@ type Summary struct {
 // because "we could not measure this" is a gap in our knowledge, not a fault in
 // the user's server.
 func Summarise(findings []Finding) Summary {
-	var warns, unknowns []Finding
+	var faults, warns, unknowns []Finding
 	for _, f := range findings {
 		switch f.Level {
+		case LevelFault:
+			faults = append(faults, f)
 		case LevelWarn:
 			warns = append(warns, f)
 		case LevelUnknown:
@@ -31,6 +33,14 @@ func Summarise(findings []Finding) Summary {
 	}
 
 	switch {
+	case len(faults) == 1:
+		return Summary{LevelFault, faults[0].Title, faults[0].Detail}
+
+	case len(faults) > 1:
+		return Summary{LevelFault,
+			fmt.Sprintf("%d serious problems", len(faults)),
+			faults[0].Title + ", and " + plural(len(faults)-1, "other", "others") + "."}
+
 	case len(warns) == 1:
 		return Summary{LevelWarn, "One thing needs attention", warns[0].Title + "."}
 
