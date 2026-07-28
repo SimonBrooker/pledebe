@@ -366,6 +366,36 @@ failure*. If the configured backup directory is not visible in our mount
 namespace, the honest output is "unknown — cannot see it", never "no backups".
 Two bugs pointing the same way felt like corroboration and was not.
 
+## CONFIRMED: the FTS corruption was real (2026-07-28, same day)
+
+The loop closed on a live server:
+
+1. `fts-triage.sh` reported all four FTS indexes failing `integrity-check`,
+   with missing documents against `_docsize`
+2. The operator ran DBRepair's Reindex
+3. pledebe's deep check now reports all four healthy
+
+| Index | Before | After |
+|---|---|---|
+| `fts4_metadata_titles` | 133,995 / 138,181 | 138,181 / 138,181 |
+| `fts4_metadata_titles_icu` | 138,180 / 138,181 | 138,181 / 138,181 |
+| `fts4_tag_titles` | 523,105 / 531,055 | 531,055 / 531,055 |
+| `fts4_tag_titles_icu` | **208,818 / 531,055** | 531,055 / 531,055 |
+
+`PRAGMA integrity_check` returned `ok` throughout — before and after. It never
+saw the fault, which is exactly why the separate FTS check has to exist.
+
+**This is the project's first confirmed true positive.** It also settles the
+reversal recorded at the top of this document: the original conclusion — that
+FTS `integrity-check` was a false positive and no FTS alert should be built —
+would have left a real, five-minute-fixable fault undetected. The 61% gap on
+`fts4_tag_titles_icu`, nearly dismissed as a tokenizer quirk, was the largest
+genuine problem on the server.
+
+**What made the wrong conclusion possible:** every calibration test was a read,
+and reads kept working. The lesson generalises beyond FTS — test the operation
+that fails, not the one that is convenient to test.
+
 ## Running tally
 
 Things that looked like findings on a healthy server:
@@ -380,7 +410,8 @@ Things that looked like findings on a healthy server:
 | 6 | Backups 91 days stale | wrong directory |
 | 7 | Butler never runs | broken log glob |
 
-**Zero true positives so far.** Every alarming number has been a measurement
+**One confirmed true positive** (the FTS corruption above, detected then fixed
+with DBRepair and verified). Everything else in the table was a measurement
 error or a benign quirk. The dominant risk in this product is not missing a real
 fault — it is confidently reporting one that does not exist. Design accordingly:
 prefer "unknown" over "broken", and calibrate every signal against a healthy

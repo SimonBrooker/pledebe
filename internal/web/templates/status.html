@@ -298,7 +298,13 @@
             {{range .Deep.FTS}}
             <tr>
               <td class="name">{{.Name}}</td>
-              <td>{{if .IntegrityOK}}ok{{else}}<span class="bad">failed</span>{{end}}</td>
+              <td>
+                {{if .IntegrityOK}}
+                  <span class="chip ok">Healthy</span>
+                {{else}}
+                  <span class="chip warn">Attention</span>
+                {{end}}
+              </td>
               <td>{{num .IndexedDocs}}</td>
               <td>{{num .SourceRows}}</td>
               <td>{{if .MissingDocs}}<span class="bad">{{num .MissingDocs}}</span>{{else}}0{{end}}</td>
