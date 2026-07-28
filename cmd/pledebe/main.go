@@ -41,8 +41,8 @@ func main() {
 			"listen address for the status page")
 		interval = flag.Duration("interval", envDuration("SCAN_INTERVAL", 15*time.Minute),
 			"how often to collect metrics")
-		retain = flag.Duration("retain", envDuration("PLEDEBE_RETAIN", 90*24*time.Hour),
-			"how long to keep history")
+		retain = flag.Duration("retain", envDuration("PLEDEBE_RETAIN", 14*24*time.Hour),
+			"how long to keep fine-grained samples; daily history is kept forever")
 		deepHour = flag.Int("deep-hour", envInt("DEEP_CHECK_HOUR", 4),
 			"hour of day (0-23) to run the integrity deep check")
 		once   = flag.Bool("once", false, "collect once, print a report, and exit")
@@ -221,7 +221,10 @@ func collectLoop(ctx context.Context, install *plex.Install, db *plex.SQLite,
 			log.Printf("store failed: %v", err)
 			return
 		}
-		if err := st.Prune(retain); err != nil {
+		if err := st.RollupDay(m.CollectedAt); err != nil {
+			log.Printf("rollup failed: %v", err)
+		}
+		if err := st.PruneRaw(retain); err != nil {
 			log.Printf("prune failed: %v", err)
 		}
 	}

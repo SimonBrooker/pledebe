@@ -19,7 +19,9 @@ services:
       PUID: ${PUID:-1000}
       PGID: ${PGID:-1000}
       SCAN_INTERVAL: 15m
-      PLEDEBE_RETAIN: 2160h # 90 days of history
+      # Fine-grained samples. Daily history is rolled up and kept forever
+      # (~0.8 MB per year), so this only bounds the 15-minute detail.
+      PLEDEBE_RETAIN: 336h # 14 days
       TZ: ${TZ:-Etc/UTC}
       # Set only if PLEX_BACKUP is mounted below.
       PLEX_BACKUP_DIR: ${PLEX_BACKUP_DIR:-}

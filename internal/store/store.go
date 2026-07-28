@@ -51,7 +51,7 @@ func Open(path string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open history db: %w", err)
 	}
-	if _, err := db.Exec(schema + deepCheckSchema); err != nil {
+	if _, err := db.Exec(schema + deepCheckSchema + dailySchema); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("create schema: %w", err)
 	}

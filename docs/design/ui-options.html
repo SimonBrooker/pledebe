@@ -1,0 +1,694 @@
+<title>pledebe — three UI directions</title>
+<style>
+  :root {
+    --ink: #14161a;
+    --ink-2: #3d434d;
+    --ink-3: #6b7280;
+    --ground: #f7f7f5;
+    --surface: #ffffff;
+    --surface-2: #f0f0ee;
+    --line: #e0e0dc;
+    --line-strong: #c9c9c4;
+
+    --accent: #2f7f7e;
+    --accent-dim: #e2efee;
+
+    --ok: #3f7d55;
+    --ok-bg: #e6f1e9;
+    --warn: #a8641f;
+    --warn-bg: #f8ecdd;
+    --fault: #a83f36;
+    --fault-bg: #f8e6e4;
+    --unknown: #6b7280;
+    --unknown-bg: #ebedef;
+
+    --mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
+    --sans: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", sans-serif;
+
+    --r: 4px;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink: #e8e9e6;
+      --ink-2: #b0b4bb;
+      --ink-3: #838a93;
+      --ground: #101216;
+      --surface: #1a1d22;
+      --surface-2: #22262c;
+      --line: #2c3037;
+      --line-strong: #3d434b;
+
+      --accent: #5cb3b1;
+      --accent-dim: #16302f;
+
+      --ok: #6fae83;
+      --ok-bg: #17281d;
+      --warn: #d0964e;
+      --warn-bg: #2e2213;
+      --fault: #d4736a;
+      --fault-bg: #2e1a18;
+      --unknown: #8b929b;
+      --unknown-bg: #24272c;
+    }
+  }
+
+  :root[data-theme="light"] {
+    --ink: #14161a; --ink-2: #3d434d; --ink-3: #6b7280;
+    --ground: #f7f7f5; --surface: #ffffff; --surface-2: #f0f0ee;
+    --line: #e0e0dc; --line-strong: #c9c9c4;
+    --accent: #2f7f7e; --accent-dim: #e2efee;
+    --ok: #3f7d55; --ok-bg: #e6f1e9;
+    --warn: #a8641f; --warn-bg: #f8ecdd;
+    --fault: #a83f36; --fault-bg: #f8e6e4;
+    --unknown: #6b7280; --unknown-bg: #ebedef;
+  }
+  :root[data-theme="dark"] {
+    --ink: #e8e9e6; --ink-2: #b0b4bb; --ink-3: #838a93;
+    --ground: #101216; --surface: #1a1d22; --surface-2: #22262c;
+    --line: #2c3037; --line-strong: #3d434b;
+    --accent: #5cb3b1; --accent-dim: #16302f;
+    --ok: #6fae83; --ok-bg: #17281d;
+    --warn: #d0964e; --warn-bg: #2e2213;
+    --fault: #d4736a; --fault-bg: #2e1a18;
+    --unknown: #8b929b; --unknown-bg: #24272c;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.6;
+  }
+
+  .page { max-width: 74rem; margin: 0 auto; padding: 3rem 1.5rem 5rem; }
+
+  .masthead { border-bottom: 2px solid var(--ink); padding-bottom: 1.25rem; margin-bottom: 1rem; }
+  .masthead h1 {
+    font-size: clamp(1.75rem, 4vw, 2.5rem); margin: 0 0 .4rem;
+    letter-spacing: -.02em; font-weight: 650; text-wrap: balance;
+  }
+  .masthead p { margin: 0; color: var(--ink-2); max-width: 60ch; }
+  .kicker {
+    font-family: var(--mono); font-size: .7rem; text-transform: uppercase;
+    letter-spacing: .14em; color: var(--accent); margin-bottom: .6rem;
+  }
+
+  .premise {
+    display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+    margin: 2.5rem 0 4rem; padding: 1.25rem; border: 1px solid var(--line);
+    border-radius: var(--r); background: var(--surface);
+  }
+  .premise h2 {
+    grid-column: 1 / -1; margin: 0; font-size: .72rem; font-family: var(--mono);
+    text-transform: uppercase; letter-spacing: .12em; color: var(--ink-3); font-weight: 600;
+  }
+  .premise div p { margin: .2rem 0 0; font-size: .875rem; color: var(--ink-2); }
+  .state-name { font-weight: 650; font-size: .9rem; display: flex; align-items: center; gap: .5rem; }
+
+  .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+  .dot.ok { background: var(--ok); }
+  .dot.warn { background: var(--warn); }
+  .dot.fault { background: var(--fault); }
+  .dot.unknown { background: transparent; border: 2px solid var(--unknown); }
+
+  .direction { margin-bottom: 5rem; }
+  .direction > header { margin-bottom: 1.5rem; }
+  .dir-label {
+    font-family: var(--mono); font-size: .72rem; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--ink-3);
+  }
+  .direction h2 {
+    font-size: 1.5rem; margin: .3rem 0 .5rem; letter-spacing: -.015em;
+    font-weight: 650; text-wrap: balance;
+  }
+  .direction > header > p { margin: 0; color: var(--ink-2); max-width: 64ch; }
+  .bestfor {
+    display: inline-block; margin-top: .9rem; padding: .3rem .7rem;
+    background: var(--accent-dim); color: var(--accent);
+    border-radius: 100px; font-size: .8rem; font-weight: 600;
+  }
+
+  /* ---------- the mockup frame ---------- */
+  .frame {
+    border: 1px solid var(--line-strong); border-radius: 8px; overflow: hidden;
+    background: var(--surface); box-shadow: 0 1px 2px rgba(0,0,0,.05), 0 8px 24px rgba(0,0,0,.06);
+  }
+  .chrome {
+    display: flex; align-items: center; gap: .5rem; padding: .55rem .9rem;
+    background: var(--surface-2); border-bottom: 1px solid var(--line);
+  }
+  .chrome span { width: 9px; height: 9px; border-radius: 50%; background: var(--line-strong); }
+  .chrome .url {
+    width: auto; height: auto; border-radius: var(--r); background: var(--surface);
+    border: 1px solid var(--line); padding: .15rem .6rem; margin-left: .5rem;
+    font-family: var(--mono); font-size: .72rem; color: var(--ink-3);
+  }
+  .screen { padding: 1.5rem; }
+
+  /* shared mockup atoms */
+  .app-bar { display: flex; align-items: baseline; gap: .75rem; flex-wrap: wrap; margin-bottom: 1.25rem; }
+  .app-name { font-weight: 700; letter-spacing: -.01em; font-size: 1.05rem; }
+  .app-meta { font-family: var(--mono); font-size: .72rem; color: var(--ink-3); }
+
+  .sect-label {
+    font-family: var(--mono); font-size: .68rem; text-transform: uppercase;
+    letter-spacing: .12em; color: var(--ink-3); font-weight: 600;
+    padding-bottom: .4rem; border-bottom: 1px solid var(--line); margin-bottom: .75rem;
+  }
+
+  .row { display: flex; gap: .75rem; align-items: flex-start; }
+  .stack { display: flex; flex-direction: column; }
+
+  /* severity chip: shape + text, never colour alone */
+  .chip {
+    display: inline-flex; align-items: center; gap: .35rem; flex: none;
+    font-family: var(--mono); font-size: .66rem; font-weight: 700;
+    letter-spacing: .08em; text-transform: uppercase;
+    padding: .18rem .45rem; border-radius: 3px; border: 1px solid transparent;
+  }
+  .chip.ok { color: var(--ok); background: var(--ok-bg); border-color: var(--ok); }
+  .chip.warn { color: var(--warn); background: var(--warn-bg); border-color: var(--warn); }
+  .chip.fault { color: var(--fault); background: var(--fault-bg); border-color: var(--fault); }
+  .chip.unknown { color: var(--unknown); background: var(--unknown-bg); border-style: dashed; border-color: var(--unknown); }
+
+  .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  /* ---------- Direction A: Verdict ---------- */
+  .verdict {
+    display: flex; align-items: center; gap: 1.1rem; padding: 1.25rem 1.4rem;
+    border: 1px solid var(--warn); background: var(--warn-bg);
+    border-radius: var(--r); margin-bottom: 1.5rem;
+  }
+  .verdict-mark {
+    width: 44px; height: 44px; flex: none; border-radius: 50%;
+    border: 2.5px solid var(--warn); display: grid; place-items: center;
+    font-size: 1.4rem; font-weight: 700; color: var(--warn); font-family: var(--mono);
+  }
+  .verdict h3 { margin: 0; font-size: 1.15rem; letter-spacing: -.01em; }
+  .verdict p { margin: .15rem 0 0; color: var(--ink-2); font-size: .875rem; }
+
+  .findings { display: flex; flex-direction: column; gap: 0; }
+  .finding {
+    display: grid; grid-template-columns: auto 1fr; gap: .75rem;
+    padding: .8rem 0; border-bottom: 1px solid var(--line); align-items: start;
+  }
+  .finding:last-child { border-bottom: none; }
+  .finding h4 { margin: 0; font-size: .9rem; font-weight: 640; }
+  .finding p { margin: .15rem 0 0; font-size: .82rem; color: var(--ink-3); }
+
+  .minor-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+    gap: 1px; background: var(--line); border: 1px solid var(--line);
+    border-radius: var(--r); overflow: hidden; margin-top: 1.5rem;
+  }
+  .minor-grid > div { background: var(--surface); padding: .7rem .8rem; }
+  .minor-grid dt {
+    font-size: .68rem; text-transform: uppercase; letter-spacing: .07em;
+    color: var(--ink-3); font-family: var(--mono);
+  }
+  .minor-grid dd { margin: .15rem 0 0; font-family: var(--mono); font-size: 1rem; font-variant-numeric: tabular-nums; }
+
+  /* measurement blocks — full data, ordered under the verdict */
+  .meas { display: flex; flex-direction: column; gap: 1.6rem; margin-top: 1.75rem; }
+  .meas h4 {
+    margin: 0 0 .6rem; font-family: var(--mono); font-size: .68rem;
+    text-transform: uppercase; letter-spacing: .12em; color: var(--ink-3);
+    font-weight: 600; padding-bottom: .35rem; border-bottom: 1px solid var(--line);
+    display: flex; justify-content: space-between; align-items: baseline; gap: 1rem;
+  }
+  .meas h4 .aside { text-transform: none; letter-spacing: 0; color: var(--ink-3); font-weight: 400; }
+
+  .data-table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+  .data-table th, .data-table td { padding: .4rem .6rem; border-bottom: 1px solid var(--line); text-align: right; }
+  .data-table th:first-child, .data-table td:first-child { text-align: left; }
+  .data-table thead th {
+    font-family: var(--mono); font-size: .64rem; text-transform: uppercase;
+    letter-spacing: .09em; color: var(--ink-3); font-weight: 600;
+  }
+  .data-table td { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .data-table td:first-child { font-family: var(--sans); }
+  .data-table tbody tr:last-child td { border-bottom: none; }
+  .neg { color: var(--warn); }
+
+  .kv { display: grid; grid-template-columns: max-content 1fr; gap: .3rem 1rem; font-size: .82rem; }
+  .kv dt { color: var(--ink-3); }
+  .kv dd { margin: 0; font-family: var(--mono); font-variant-numeric: tabular-nums; word-break: break-all; }
+
+  /* ---------- Direction B: Panel ---------- */
+  .panel-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: 1px;
+                background: var(--line); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+  .gauge { background: var(--surface); padding: .85rem .9rem; }
+  .gauge .label { font-family: var(--mono); font-size: .66rem; text-transform: uppercase;
+                  letter-spacing: .08em; color: var(--ink-3); }
+  .gauge .value { font-family: var(--mono); font-size: 1.3rem; font-variant-numeric: tabular-nums;
+                  margin-top: .1rem; letter-spacing: -.02em; }
+  .gauge .trend { font-size: .72rem; color: var(--ink-3); font-family: var(--mono); }
+  .spark { display: block; width: 100%; height: 34px; margin-top: .4rem; }
+
+  .timeline { margin-top: 1.5rem; }
+  .tl-track {
+    position: relative; height: 2px; background: var(--line-strong);
+    margin: 2.5rem 1rem 1.75rem;
+  }
+  .tl-event { position: absolute; top: 50%; transform: translate(-50%, -50%); }
+  .tl-event .tl-dot {
+    width: 11px; height: 11px; border-radius: 50%; border: 2px solid var(--surface);
+    background: var(--ink-3);
+  }
+  .tl-event.is-warn .tl-dot { background: var(--warn); }
+  .tl-event.is-ok .tl-dot { background: var(--ok); }
+  .tl-event .tl-text {
+    position: absolute; left: 50%; transform: translateX(-50%);
+    white-space: nowrap; font-family: var(--mono); font-size: .68rem; color: var(--ink-3);
+  }
+  .tl-event.above .tl-text { bottom: 14px; }
+  .tl-event.below .tl-text { top: 14px; }
+
+  /* ---------- Direction C: Triage ---------- */
+  .triage-card {
+    border: 1px solid var(--line); border-radius: var(--r); overflow: hidden;
+  }
+  .triage-head {
+    padding: 1.1rem 1.25rem; background: var(--warn-bg);
+    border-bottom: 1px solid var(--warn);
+  }
+  .triage-head h3 { margin: .4rem 0 .3rem; font-size: 1.2rem; letter-spacing: -.015em; text-wrap: balance; }
+  .triage-head p { margin: 0; color: var(--ink-2); font-size: .875rem; max-width: 58ch; }
+  .triage-body { padding: 1.25rem; display: flex; flex-direction: column; gap: 1.1rem; }
+  .qa dt { font-size: .78rem; font-weight: 700; color: var(--ink); }
+  .qa dd { margin: .2rem 0 0; font-size: .85rem; color: var(--ink-2); max-width: 62ch; }
+  .cmd {
+    font-family: var(--mono); font-size: .78rem; background: var(--surface-2);
+    border: 1px solid var(--line); border-left: 3px solid var(--accent);
+    padding: .65rem .8rem; border-radius: var(--r); overflow-x: auto; white-space: pre;
+  }
+  .btn-row { display: flex; gap: .6rem; flex-wrap: wrap; }
+  .btn {
+    font: inherit; font-size: .85rem; font-weight: 600; padding: .5rem .95rem;
+    border-radius: var(--r); border: 1px solid var(--accent); background: var(--accent);
+    color: var(--ground); cursor: pointer;
+  }
+  .btn.secondary { background: transparent; color: var(--accent); }
+  .btn:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .allclear {
+    margin-top: 1.25rem; display: flex; flex-direction: column; gap: .4rem;
+    padding: .9rem 1rem; border: 1px dashed var(--line-strong); border-radius: var(--r);
+  }
+  .allclear-row { display: flex; align-items: center; gap: .6rem; font-size: .82rem; color: var(--ink-2); }
+
+  .compare { width: 100%; border-collapse: collapse; font-size: .875rem; margin-top: 1rem; }
+  .compare th, .compare td { text-align: left; padding: .6rem .75rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .compare th { font-family: var(--mono); font-size: .68rem; text-transform: uppercase; letter-spacing: .1em; color: var(--ink-3); }
+  .scroll-x { overflow-x: auto; }
+
+  footer { margin-top: 4rem; padding-top: 1.5rem; border-top: 1px solid var(--line); color: var(--ink-3); font-size: .85rem; }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .btn { transition: opacity .15s ease; }
+    .btn:hover { opacity: .85; }
+  }
+</style>
+
+<div class="page">
+
+  <header class="masthead">
+    <div class="kicker">Design directions · 28 July 2026</div>
+    <h1>pledebe — three ways to show a Plex admin what's wrong</h1>
+    <p>Same data, same palette, three different information architectures. The difference between them is structural, not cosmetic: each answers a different question an admin actually arrives with.</p>
+  </header>
+
+  <section class="premise">
+    <h2>The constraint that shapes all three</h2>
+    <div>
+      <div class="state-name"><span class="dot ok"></span>Healthy</div>
+      <p>Measured, and within expectations.</p>
+    </div>
+    <div>
+      <div class="state-name"><span class="dot warn"></span>Attention</div>
+      <p>Measured, and outside them. Action available.</p>
+    </div>
+    <div>
+      <div class="state-name"><span class="dot fault"></span>Fault</div>
+      <p>Measured, and broken now.</p>
+    </div>
+    <div>
+      <div class="state-name"><span class="dot unknown"></span>Unknown</div>
+      <p>Not measured. <strong>Not a fault.</strong> Must never read as either reassurance or alarm — it gets a hollow mark and a dashed border so it is legible as absence.</p>
+    </div>
+  </section>
+
+  <!-- ============ DIRECTION A ============ -->
+  <section class="direction">
+    <header>
+      <div class="dir-label">Direction A · selected</div>
+      <h2>Verdict</h2>
+      <p>One unambiguous state at the top, the way a smoke alarm reads. Everything below it is supporting evidence in descending severity. An admin can answer “do I need to care?” without reading a single number, then keep going if the answer is yes.</p>
+      <div class="bestfor">Best when the page is glanced at, or embedded in a dashboard</div>
+    </header>
+
+    <div class="frame">
+      <div class="chrome"><span></span><span></span><span></span><span class="url">buzz:8087</span></div>
+      <div class="screen">
+        <div class="app-bar">
+          <div class="app-name">pledebe</div>
+          <div class="app-meta">buzz · Plex 1.43.3.10828 · checked 14:02</div>
+        </div>
+
+        <div class="verdict">
+          <div class="verdict-mark" aria-hidden="true">!</div>
+          <div>
+            <h3>One thing needs attention</h3>
+            <p>Search indexes report corruption. Your library is otherwise healthy and fully backed up.</p>
+          </div>
+        </div>
+
+        <div class="sect-label">Findings</div>
+        <div class="findings">
+          <div class="finding">
+            <span class="chip warn">Attention</span>
+            <div>
+              <h4>Search indexes report corruption</h4>
+              <p>All 4 full-text indexes failed their integrity check. Searching still works — the symptom is adding items to collections or editing metadata failing. DBRepair's Reindex rebuilds them.</p>
+            </div>
+          </div>
+          <div class="finding">
+            <span class="chip unknown">Unknown</span>
+            <div>
+              <h4>Search indexes are incomplete</h4>
+              <p>334,374 documents missing across 4 indexes. Consistent with the corruption above; not independently confirmed.</p>
+            </div>
+          </div>
+          <div class="finding">
+            <span class="chip ok">Healthy</span>
+            <div>
+              <h4>Database integrity verified</h4>
+              <p>Checked 12 minutes ago in 6s, against a snapshot. Plex was never blocked.</p>
+            </div>
+          </div>
+          <div class="finding">
+            <span class="chip ok">Healthy</span>
+            <div>
+              <h4>Backups current</h4>
+              <p>4 backups in <span class="num">/plexbackups</span>, newest 1 day old.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="meas">
+
+          <div>
+            <h4>Database</h4>
+            <dl class="minor-grid">
+              <div><dt>library.db</dt><dd>1.11 GB</dd></div>
+              <div><dt>blobs.db</dt><dd>3.39 GB</dd></div>
+              <div><dt>Write-ahead log</dt><dd>4.7 MB</dd></div>
+              <div><dt>Shared memory</dt><dd>32 KB</dd></div>
+              <div><dt>Pages</dt><dd>291,757</dd></div>
+              <div><dt>Page size</dt><dd>4,096 B</dd></div>
+              <div><dt>Free pages</dt><dd>350 · 0.1%</dd></div>
+              <div><dt>Reclaimable floor</dt><dd>1.4 MB</dd></div>
+            </dl>
+          </div>
+
+          <div>
+            <h4>Last deep check <span class="aside">28 Jul 14:02 · snapshot, Plex never blocked</span></h4>
+            <dl class="minor-grid">
+              <div><dt>integrity_check</dt><dd>ok</dd></div>
+              <div><dt>Reclaimable (exact)</dt><dd>14 MB</dd></div>
+              <div><dt>Snapshot took</dt><dd>4s</dd></div>
+              <div><dt>Check took</dt><dd>6s</dd></div>
+              <div><dt>Total</dt><dd>11s</dd></div>
+            </dl>
+          </div>
+
+          <div>
+            <h4>Full-text indexes <span class="aside">not covered by integrity_check</span></h4>
+            <div class="scroll-x">
+              <table class="data-table">
+                <thead>
+                  <tr><th>Index</th><th>Integrity</th><th>Indexed</th><th>Source rows</th><th>Missing</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td>fts4_metadata_titles</td><td class="neg">failed</td><td>133,995</td><td>138,181</td><td class="neg">4,186</td></tr>
+                  <tr><td>fts4_metadata_titles_icu</td><td class="neg">failed</td><td>138,180</td><td>138,181</td><td>1</td></tr>
+                  <tr><td>fts4_tag_titles</td><td class="neg">failed</td><td>523,105</td><td>531,055</td><td class="neg">7,950</td></tr>
+                  <tr><td>fts4_tag_titles_icu</td><td class="neg">failed</td><td>208,818</td><td>531,055</td><td class="neg">322,237</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div>
+            <h4>Backups</h4>
+            <dl class="minor-grid">
+              <div><dt>Newest</dt><dd>27 Jul · 1 day</dd></div>
+              <div><dt>Kept</dt><dd>4</dd></div>
+              <div><dt>Schedule</dt><dd>every 3 days</dd></div>
+            </dl>
+            <dl class="kv" style="margin-top:.7rem">
+              <dt>Read from</dt><dd>/plexbackups</dd>
+              <dt>PMS writes to</dt><dd>/backup/Databases</dd>
+            </dl>
+          </div>
+
+          <div>
+            <h4>Environment</h4>
+            <dl class="minor-grid">
+              <div><dt>Plex version</dt><dd>1.43.3.10828</dd></div>
+              <div><dt>Installed</dt><dd>15 Jul 2026</dd></div>
+              <div><dt>Crash files</dt><dd>0</dd></div>
+              <div><dt>Crashes 14d</dt><dd>0</dd></div>
+              <div><dt>Volume free</dt><dd>643.4 GB</dd></div>
+            </dl>
+          </div>
+
+          <div>
+            <h4>History <span class="aside">6 samples · every 15 min · 90 day retention</span></h4>
+            <div class="scroll-x">
+              <table class="data-table">
+                <thead>
+                  <tr><th>Collected</th><th>library.db</th><th>blobs.db</th><th>WAL</th><th>Free pages</th><th>Volume free</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td>28 Jul 14:02</td><td>1.11 GB</td><td>3.39 GB</td><td>4.7 MB</td><td>350</td><td>643.4 GB</td></tr>
+                  <tr><td>28 Jul 13:47</td><td>1.11 GB</td><td>3.39 GB</td><td>3.9 MB</td><td>350</td><td>643.4 GB</td></tr>
+                  <tr><td>28 Jul 13:32</td><td>1.11 GB</td><td>3.39 GB</td><td>12.1 MB</td><td>363</td><td>643.5 GB</td></tr>
+                  <tr><td>28 Jul 13:17</td><td>1.11 GB</td><td>3.39 GB</td><td>5.2 MB</td><td>363</td><td>643.5 GB</td></tr>
+                  <tr><td>28 Jul 13:02</td><td>1.11 GB</td><td>3.39 GB</td><td>4.4 MB</td><td>363</td><td>643.5 GB</td></tr>
+                  <tr><td>28 Jul 12:47</td><td>1.11 GB</td><td>3.39 GB</td><td>18.6 MB</td><td>341</td><td>643.6 GB</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div>
+            <h4>Paths</h4>
+            <dl class="kv">
+              <dt>Database</dt><dd>/plexconfig/Plug-in Support/Databases/com.plexapp.plugins.library.db</dd>
+              <dt>Logs</dt><dd>/plexconfig/Logs</dd>
+              <dt>Plex SQLite</dt><dd>/plexbin/Plex SQLite</dd>
+            </dl>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ DIRECTION B ============ -->
+  <section class="direction">
+    <header>
+      <div class="dir-label">Direction B</div>
+      <h2>Panel</h2>
+      <p>An instrument panel. Every tracked value carries its own history, and a single timeline underneath ties events together — Plex upgrades, deep checks, crashes, the day a number changed shape. Built for the question “when did this start?”, which is the one that actually leads to a diagnosis.</p>
+      <div class="bestfor">Best when something is wrong and you're looking for the cause</div>
+    </header>
+
+    <div class="frame">
+      <div class="chrome"><span></span><span></span><span></span><span class="url">buzz:8087</span></div>
+      <div class="screen">
+        <div class="app-bar">
+          <div class="app-name">pledebe</div>
+          <div class="app-meta">90 days · 8,640 samples · 15 min interval</div>
+          <span class="chip warn" style="margin-left:auto">1 attention</span>
+        </div>
+
+        <div class="panel-grid">
+          <div class="gauge">
+            <div class="label">library.db</div>
+            <div class="value">1.11 GB</div>
+            <svg class="spark" data-points="1.02,1.03,1.05,1.04,1.06,1.07,1.07,1.09,1.10,1.11" data-tone="accent" aria-label="library.db size trending gently upward over 90 days"></svg>
+            <div class="trend">+8.8% over 90d</div>
+          </div>
+          <div class="gauge">
+            <div class="label">blobs.db</div>
+            <div class="value">3.39 GB</div>
+            <svg class="spark" data-points="3.10,3.14,3.19,3.22,3.26,3.29,3.32,3.35,3.37,3.39" data-tone="accent" aria-label="blobs.db size trending upward over 90 days"></svg>
+            <div class="trend">+9.4% over 90d</div>
+          </div>
+          <div class="gauge">
+            <div class="label">Write-ahead log</div>
+            <div class="value">4.7 MB</div>
+            <svg class="spark" data-points="3.9,12.1,5.2,4.4,18.6,4.9,4.1,9.8,4.6,4.7" data-tone="ok" aria-label="write-ahead log spiking and checkpointing normally"></svg>
+            <div class="trend">checkpointing normally</div>
+          </div>
+          <div class="gauge">
+            <div class="label">Free pages</div>
+            <div class="value">0.1%</div>
+            <svg class="spark" data-points="0.4,0.3,0.5,0.2,0.3,0.2,0.2,0.1,0.2,0.1" data-tone="ok" aria-label="free page ratio consistently near zero"></svg>
+            <div class="trend">14 MB reclaimable (measured)</div>
+          </div>
+          <div class="gauge">
+            <div class="label">FTS documents indexed</div>
+            <div class="value">669,038</div>
+            <svg class="spark" data-points="995,994,996,993,995,700,676,672,670,669" data-tone="warn" aria-label="indexed document count dropping sharply in mid-July"></svg>
+            <div class="trend">of 1,338,472 rows — dropped 15 Jul</div>
+          </div>
+          <div class="gauge">
+            <div class="label">Backup age</div>
+            <div class="value">1 day</div>
+            <svg class="spark" data-points="1,2,3,1,2,3,1,2,3,1" data-tone="ok" aria-label="backup age sawtoothing between one and three days"></svg>
+            <div class="trend">every 3 days, on schedule</div>
+          </div>
+        </div>
+
+        <div class="timeline">
+          <div class="sect-label">Timeline · last 30 days</div>
+          <div class="tl-track">
+            <div class="tl-event above is-ok" style="left: 4%"><div class="tl-dot"></div><div class="tl-text">28 Jun · integrity ok</div></div>
+            <div class="tl-event below" style="left: 34%"><div class="tl-dot"></div><div class="tl-text">9 Jul · Plex 1.43.2</div></div>
+            <div class="tl-event above is-warn" style="left: 58%"><div class="tl-dot"></div><div class="tl-text">15 Jul · Plex 1.43.3 · FTS drop</div></div>
+            <div class="tl-event below" style="left: 79%"><div class="tl-dot"></div><div class="tl-text">27 Jul · backup</div></div>
+            <div class="tl-event above is-warn" style="left: 97%"><div class="tl-dot"></div><div class="tl-text">today</div></div>
+          </div>
+          <p style="font-size:.82rem;color:var(--ink-2);margin:0">
+            Indexed documents fell by 334,374 on 15 July, the same day Plex updated to 1.43.3.10828. Correlation, not proof — but it is the first place to look.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ DIRECTION C ============ -->
+  <section class="direction">
+    <header>
+      <div class="dir-label">Direction C</div>
+      <h2>Triage</h2>
+      <p>Organised around the decision, not the measurement. One thing to do, stated in the user's terms, with the evidence folded underneath rather than in front. Everything healthy collapses to a single quiet line — because a list of things that are fine is noise when one thing isn't.</p>
+      <div class="bestfor">Best when the admin wants to be told what to do, not what was measured</div>
+    </header>
+
+    <div class="frame">
+      <div class="chrome"><span></span><span></span><span></span><span class="url">buzz:8087</span></div>
+      <div class="screen">
+        <div class="app-bar">
+          <div class="app-name">pledebe</div>
+          <div class="app-meta">buzz · last checked 12 minutes ago</div>
+        </div>
+
+        <div class="triage-card">
+          <div class="triage-head">
+            <span class="chip warn">Recommended</span>
+            <h3>Rebuild your search indexes</h3>
+            <p>Takes a few minutes. Plex needs to be stopped, and nothing is deleted.</p>
+          </div>
+          <div class="triage-body">
+            <dl class="qa" style="margin:0">
+              <dt>What's wrong</dt>
+              <dd>All four of Plex's full-text search indexes fail their integrity check, and 334,374 records are missing from them.</dd>
+            </dl>
+            <dl class="qa" style="margin:0">
+              <dt>What you'd notice</dt>
+              <dd>Adding items to a collection or editing metadata fails, sometimes with a “database disk image is malformed” error. Searching still works normally, which is why this usually goes unnoticed.</dd>
+            </dl>
+            <dl class="qa" style="margin:0">
+              <dt>What to run</dt>
+              <dd>
+                <div class="cmd">docker exec -it plex /config/DBRepair.sh stop reindex start exit</div>
+              </dd>
+            </dl>
+            <div class="btn-row">
+              <button class="btn" type="button">Copy command</button>
+              <button class="btn secondary" type="button">Show the evidence</button>
+              <button class="btn secondary" type="button">Remind me later</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="allclear">
+          <div class="allclear-row"><span class="chip ok">Healthy</span> Database integrity, backups, disk space, crash history and write-ahead log — all checked, all fine.</div>
+          <div class="allclear-row"><span class="chip unknown">Unknown</span> Nothing is currently unmeasured.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sect-label">Choosing between them</div>
+    <div class="scroll-x">
+      <table class="compare">
+        <thead>
+          <tr><th>&nbsp;</th><th>Verdict</th><th>Panel</th><th>Triage</th></tr>
+        </thead>
+        <tbody>
+          <tr><th>Answers</th><td>Do I need to care?</td><td>When did this start?</td><td>What do I do?</td></tr>
+          <tr><th>Reading time</th><td>2 seconds</td><td>2 minutes</td><td>20 seconds</td></tr>
+          <tr><th>Assumes</th><td>Nothing</td><td>You're already worried</td><td>You trust the tool's judgement</td></tr>
+          <tr><th>Weakness</th><td>Hides the history that explains a fault</td><td>Overwhelming when everything is fine</td><td>Opinionated — a wrong call is more costly</td></tr>
+          <tr><th>Build cost</th><td>Low — close to what exists</td><td>High — needs charting and event correlation</td><td>Medium — needs a recommendation engine</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p style="margin-top:1.25rem;color:var(--ink-2);max-width:64ch">
+      These aren't mutually exclusive. Verdict is the natural front page, Panel is what a “History” tab should become, and Triage is what a finding should expand into when you click it. If one has to ship first, Verdict is the cheapest and the hardest to get wrong.
+    </p>
+  </section>
+
+  <footer>
+    Mock data is real, taken from buzz on 28 July 2026 — except the FTS figures, which assume the pending deep check confirms what the triage script found.
+  </footer>
+</div>
+
+<script>
+  // Sparklines: small enough to generate rather than hand-author path data.
+  document.querySelectorAll('.spark').forEach(function (svg) {
+    var pts = svg.dataset.points.split(',').map(Number);
+    var tone = svg.dataset.tone || 'accent';
+    var w = 120, h = 34, pad = 3;
+    var min = Math.min.apply(null, pts), max = Math.max.apply(null, pts);
+    var span = (max - min) || 1;
+
+    var coords = pts.map(function (v, i) {
+      return [
+        pad + (i / (pts.length - 1)) * (w - pad * 2),
+        h - pad - ((v - min) / span) * (h - pad * 2)
+      ];
+    });
+
+    var line = coords.map(function (c, i) {
+      return (i ? 'L' : 'M') + c[0].toFixed(1) + ' ' + c[1].toFixed(1);
+    }).join(' ');
+    var area = line + ' L' + coords[coords.length - 1][0].toFixed(1) + ' ' + h + ' L' + coords[0][0].toFixed(1) + ' ' + h + ' Z';
+    var last = coords[coords.length - 1];
+    var stroke = 'var(--' + tone + ')';
+    var id = 'g' + Math.random().toString(36).slice(2, 8);
+
+    svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
+    svg.setAttribute('preserveAspectRatio', 'none');
+    svg.setAttribute('role', 'img');
+    svg.innerHTML =
+      '<defs><linearGradient id="' + id + '" x1="0" y1="0" x2="0" y2="1">' +
+      '<stop offset="0" stop-color="' + stroke + '" stop-opacity=".22"/>' +
+      '<stop offset="1" stop-color="' + stroke + '" stop-opacity="0"/></linearGradient></defs>' +
+      '<path d="' + area + '" fill="url(#' + id + ')"/>' +
+      '<path d="' + line + '" fill="none" stroke="' + stroke + '" stroke-width="1.5" ' +
+      'stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>' +
+      '<circle cx="' + last[0].toFixed(1) + '" cy="' + last[1].toFixed(1) + '" r="2.4" fill="' + stroke + '"/>';
+  });
+</script>
