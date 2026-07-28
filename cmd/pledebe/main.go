@@ -45,7 +45,9 @@ func main() {
 			"how long to keep fine-grained samples; daily history is kept forever")
 		deepHour = flag.Int("deep-hour", envInt("DEEP_CHECK_HOUR", 4),
 			"hour of day (0-23) to run the integrity deep check")
-		once   = flag.Bool("once", false, "collect once, print a report, and exit")
+		once = flag.Bool("once", false, "collect once, print a report, and exit")
+		deep = flag.Bool("deep", false,
+			"run one integrity deep check now, print the result, and exit")
 		asJSON = flag.Bool("json", false, "with -once, emit JSON")
 	)
 	flag.Parse()
@@ -54,6 +56,14 @@ func main() {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "pledebe: %v\n", err)
 		os.Exit(1)
+	}
+
+	if *deep {
+		if err := runDeep(install, db, *dataDir); err != nil {
+			fmt.Fprintf(os.Stderr, "pledebe: %v\n", err)
+			os.Exit(1)
+		}
+		return
 	}
 
 	if *once {
@@ -322,4 +332,80 @@ func envInt(key string, fallback int) int {
 		log.Printf("ignoring invalid %s=%q", key, v)
 	}
 	return fallback
+}
+
+// runDeep performs one deep check on demand and prints it.
+//
+// Records the result if the data directory is usable, so a manual run shows up
+// on the status page — but a run without /data mounted still works and prints,
+// because the common use is checking a server before committing to a
+// deployment.
+func runDeep(install *plex.Install, db *plex.SQLite, dataDir string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Minute)
+	defer cancel()
+
+	var st *store.Store
+	if err := os.MkdirAll(dataDir, 0o755); err == nil {
+		if opened, err := store.Open(filepath.Join(dataDir, "history.db")); err == nil {
+			st = opened
+			defer st.Close()
+		}
+	}
+
+	fmt.Printf("Snapshotting %s\n", install.Database)
+	fmt.Println("Plex keeps running throughout; only a read lock is taken.")
+
+	dc, err := install.RunDeepCheck(ctx, db, filepath.Join(dataDir, "scratch"))
+	if dc == nil {
+		return err
+	}
+
+	fmt.Println()
+	if dc.Err != "" {
+		fmt.Printf("Could not complete: %s\n", dc.Err)
+	} else {
+		fmt.Printf("integrity_check : %s\n", okOrFailed(dc.IntegrityOK))
+		fmt.Printf("database        : %s\n", human(dc.DatabaseBytes))
+		fmt.Printf("snapshot        : %s\n", human(dc.SnapshotBytes))
+		fmt.Printf("reclaimable     : %s (exact, not the freelist estimate)\n", human(dc.ReclaimableBytes))
+		fmt.Printf("snapshot took   : %.1fs\n", dc.SnapshotSec)
+		fmt.Printf("check took      : %.1fs\n", dc.CheckSec)
+
+		if dc.IntegrityDetail != "" {
+			fmt.Printf("\nintegrity_check output:\n%s\n", dc.IntegrityDetail)
+		}
+
+		if len(dc.FTS) > 0 {
+			fmt.Println("\nFull-text indexes (not covered by integrity_check):")
+			fmt.Printf("  %-26s %-8s %10s %10s %10s\n", "index", "check", "indexed", "rows", "missing")
+			for _, t := range dc.FTS {
+				fmt.Printf("  %-26s %-8s %10d %10d %10d\n",
+					t.Name, okOrFailed(t.IntegrityOK), t.IndexedDocs, t.SourceRows, t.MissingDocs())
+			}
+		}
+	}
+
+	fmt.Println("\nFindings")
+	for _, f := range health.Evaluate(&plex.Metrics{}, dc) {
+		if f.Level == health.LevelOK {
+			continue // metrics are empty here; only the deep-check findings mean anything
+		}
+		fmt.Printf("  [%-7s] %s\n            %s\n", f.Level, f.Title, f.Detail)
+	}
+
+	if st != nil {
+		if err := st.InsertDeepCheck(dc); err != nil {
+			fmt.Fprintf(os.Stderr, "\nwarning: could not record the result: %v\n", err)
+		} else {
+			fmt.Println("\nRecorded — it will appear on the status page.")
+		}
+	}
+	return err
+}
+
+func okOrFailed(ok bool) string {
+	if ok {
+		return "ok"
+	}
+	return "FAILED"
 }
