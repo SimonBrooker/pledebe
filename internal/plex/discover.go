@@ -40,9 +40,16 @@ type Install struct {
 	// LogDir holds "Plex Media Server.log" and its rotations. May be empty.
 	LogDir string
 
-	// BackupDir is where PMS writes its dated database backups — the same
-	// directory as the database itself.
+	// BackupDir is the directory beside the database. Historically PMS wrote
+	// dated backups here, but ButlerDatabaseBackupPath can redirect them —
+	// treat this as a fallback, not the answer.
 	BackupDir string
+
+	// BackupDirOverride is where the operator has mounted PMS's configured
+	// backup location, if anywhere. PMS records that path in its own mount
+	// namespace (e.g. /backup/Databases), which pledebe usually cannot resolve,
+	// so it must be supplied explicitly.
+	BackupDirOverride string
 }
 
 // ErrNotFound indicates no Plex database was located under the given roots.

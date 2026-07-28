@@ -38,6 +38,17 @@ type Metrics struct {
 	NewestBackupAt time.Time `json:"newest_backup_at,omitempty"`
 	BackupCount    int       `json:"backup_count"`
 
+	// BackupDirSearched is where the backups above were found, and
+	// BackupDirVisible reports whether the configured backup location is
+	// reachable from pledebe's mount namespace at all.
+	//
+	// PMS's ButlerDatabaseBackupPath is a path inside the PMS container. If we
+	// cannot see it, we know nothing about backup freshness and must say so
+	// rather than reporting the stale leftovers next to the database.
+	BackupDirSearched string `json:"backup_dir_searched,omitempty"`
+	BackupDirVisible  bool   `json:"backup_dir_visible"`
+	BackupDirExpected string `json:"backup_dir_expected,omitempty"`
+
 	// CrashReportCount counts crash FILES, not directories.
 	//
 	// "Crash Reports" contains one directory per PMS version ever installed —
@@ -95,17 +106,41 @@ func (in *Install) Collect(ctx context.Context, db *SQLite) (*Metrics, error) {
 	}
 	m.FreelistBytes = m.FreelistCount * m.PageSize
 
-	in.collectBackups(m)
+	prefs, _ := in.LoadPreferences()
+	in.collectBackups(m, prefs)
 	in.collectCrashes(m)
 	m.VolumeFreeBytes = freeBytes(filepath.Dir(in.Database))
 
 	return m, nil
 }
 
-// collectBackups finds PMS's dated backups, which sit beside the live database
-// named like "com.plexapp.plugins.library.db-2026-07-27".
-func (in *Install) collectBackups(m *Metrics) {
-	entries, err := os.ReadDir(in.BackupDir)
+// collectBackups finds PMS's dated backups, named like
+// "com.plexapp.plugins.library.db-2026-07-27".
+//
+// They do NOT reliably live beside the database: ButlerDatabaseBackupPath is
+// configurable, and stale backups from a previous setting can sit in the
+// database directory long after PMS stopped writing there. Search the
+// configured location first.
+func (in *Install) collectBackups(m *Metrics, prefs *Preferences) {
+	if prefs != nil {
+		m.BackupDirExpected = prefs.DatabaseBackupPath
+	}
+
+	for _, dir := range in.BackupDirs(prefs) {
+		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+			continue
+		}
+		m.BackupDirVisible = true
+		m.BackupDirSearched = dir
+		in.scanBackupDir(dir, m)
+		if m.BackupCount > 0 {
+			return
+		}
+	}
+}
+
+func (in *Install) scanBackupDir(dir string, m *Metrics) {
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return
 	}

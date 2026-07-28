@@ -21,17 +21,19 @@ func main() {
 			"directory to scan for the Plex database")
 		sqliteDir = flag.String("sqlite", envOr("PLEX_SQLITE_DIR", "/plexbin"),
 			"directory containing the Plex SQLite binary (and its siblings)")
+		backupDir = flag.String("backups", envOr("PLEX_BACKUP_DIR", ""),
+			"where PMS's configured backup path is mounted for pledebe to read")
 		asJSON = flag.Bool("json", false, "emit JSON instead of a readable report")
 	)
 	flag.Parse()
 
-	if err := run(*configRoot, *sqliteDir, *asJSON); err != nil {
+	if err := run(*configRoot, *sqliteDir, *backupDir, *asJSON); err != nil {
 		fmt.Fprintf(os.Stderr, "pledebe: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run(configRoot, sqliteDir string, asJSON bool) error {
+func run(configRoot, sqliteDir, backupDir string, asJSON bool) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
@@ -39,6 +41,7 @@ func run(configRoot, sqliteDir string, asJSON bool) error {
 	if err != nil {
 		return err
 	}
+	install.BackupDirOverride = backupDir
 
 	db, err := plex.FindSQLite(sqliteDir)
 	if err != nil {
@@ -76,12 +79,26 @@ func report(in *plex.Install, db *plex.SQLite, m *plex.Metrics) {
 	fmt.Printf("  reclaimable   : at least %s (floor, not an estimate)\n", human(m.FreelistBytes))
 
 	fmt.Println("\nBackups")
-	if m.NewestBackup == "" {
-		fmt.Println("  none found -- PMS may not be backing up")
-	} else {
+	if m.BackupDirExpected != "" {
+		fmt.Printf("  PMS writes to : %s (its own mount namespace)\n", m.BackupDirExpected)
+	}
+	switch {
+	case m.BackupCount > 0:
 		age := int(time.Since(m.NewestBackupAt).Hours() / 24)
+		fmt.Printf("  searched      : %s\n", m.BackupDirSearched)
 		fmt.Printf("  newest        : %s (%d days old)\n", m.NewestBackup, age)
 		fmt.Printf("  count         : %d\n", m.BackupCount)
+
+	case m.BackupDirExpected != "" && !m.BackupDirVisible:
+		// Critical distinction: we cannot see the location, so we know NOTHING
+		// about backup freshness. Saying "no backups" here would be a confident
+		// false alarm -- it is exactly the bug this branch exists to prevent.
+		fmt.Printf("  UNKNOWN -- cannot see %s from pledebe.\n", m.BackupDirExpected)
+		fmt.Println("  Mount it and pass -backups (or PLEX_BACKUP_DIR) to check freshness.")
+
+	default:
+		fmt.Printf("  none found in %s\n", orNone(m.BackupDirSearched))
+		fmt.Println("  (PMS may be writing elsewhere -- check ButlerDatabaseBackupPath)")
 	}
 
 	fmt.Println("\nEnvironment")
