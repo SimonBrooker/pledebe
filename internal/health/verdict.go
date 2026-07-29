@@ -52,18 +52,19 @@ type Finding struct {
 	Detail string
 }
 
-// backupStaleAfter is generous: Plex's default schedule is every three days,
-// and a server that is busy through its Butler window can legitimately skip
-// one. Alerting at four days would produce noise on healthy servers.
+// PROVISIONAL -- see docs/thresholds.md. Reasoned from Plex's default 3-day
+// schedule, doubled plus slack because a server busy through its Butler window
+// legitimately skips one. Not sourced from any authority.
 const backupStaleAfter = 8 * 24 * time.Hour
 
-// walLarge flags a write-ahead log that is not being checkpointed. A healthy
-// WAL is tens of MB; sustained hundreds of MB suggests a stuck reader.
+// PROVISIONAL, and the weakest threshold here -- see docs/thresholds.md.
+// General SQLite folklore, not measured. "Large" is really relative to library
+// size, so this should become a comparison against the server's own trailing
+// median once enough daily history exists.
 const walLarge = 512 << 20
 
-// integrityStaleAfter is how long a deep check stays meaningful. Corruption
-// does not appear from nowhere, but a check from last month says little about
-// today.
+// PROVISIONAL -- see docs/thresholds.md. Arbitrary, but low impact: exceeding
+// it reports Unknown, never a fault.
 const integrityStaleAfter = 48 * time.Hour
 
 // Evaluate produces findings for a metric sample, most important first.
