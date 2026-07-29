@@ -98,7 +98,7 @@ func runOnce(install *plex.Install, db *plex.SQLite, asJSON bool) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	m, err := install.Collect(ctx, db)
+	m, err := install.Collect(ctx, db, time.Time{})
 	if err != nil {
 		return err
 	}
@@ -234,11 +234,15 @@ func deepCheckLoop(ctx context.Context, install *plex.Install, db *plex.SQLite,
 func collectLoop(ctx context.Context, install *plex.Install, db *plex.SQLite,
 	st *store.Store, interval, retain time.Duration) {
 
+	// Slow-query lines are only counted once: each poll scans from where the
+	// last one stopped. Zero on the first pass takes whatever the logs hold.
+	var lastPoll time.Time
+
 	collect := func() {
 		callCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 		defer cancel()
 
-		m, err := install.Collect(callCtx, db)
+		m, err := install.Collect(callCtx, db, lastPoll)
 		if err != nil {
 			log.Printf("collect failed: %v", err)
 			return
@@ -247,6 +251,7 @@ func collectLoop(ctx context.Context, install *plex.Install, db *plex.SQLite,
 			log.Printf("store failed: %v", err)
 			return
 		}
+		lastPoll = m.CollectedAt
 		if err := st.RollupDay(m.CollectedAt); err != nil {
 			log.Printf("rollup failed: %v", err)
 		}

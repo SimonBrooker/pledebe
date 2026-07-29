@@ -338,6 +338,29 @@
       {{end}}
     </section>
 
+    {{with .Metrics.SlowQueries}}
+    <section>
+      <h2 class="grp">Slow queries
+        <span class="aside">Plex's own warnings, since the previous check</span>
+      </h2>
+      <dl class="grid">
+        <div><dt>Warnings</dt><dd>{{num .Count}}</dd></div>
+        <div><dt>Per hour</dt><dd>{{printf "%.0f" .PerHour}}</dd></div>
+        <div><dt>Median</dt><dd>{{printf "%.0f ms" .P50}}</dd></div>
+        <div><dt>95th percentile</dt><dd>{{printf "%.0f ms" .P95}}</dd></div>
+        <div><dt>Slowest</dt><dd>{{printf "%.0f ms" .Max}}</dd></div>
+        <div><dt>During maintenance</dt><dd>{{num .InButlerWindow}}</dd></div>
+      </dl>
+      <p class="runbox-note" style="margin-top:.7rem">
+        Plex decides what counts as slow, not pledebe. These are not graded: there is
+        no baseline yet for what is normal on a library this size, and a threshold
+        invented without one would be a guess. Watch the trend rather than the number —
+        and note that warnings during the {{$.ButlerWindow}} maintenance window are
+        expected, since Plex is doing scheduled work then.
+      </p>
+    </section>
+    {{end}}
+
     <section>
       <h2 class="grp">Backups</h2>
       {{if .Metrics.BackupCount}}

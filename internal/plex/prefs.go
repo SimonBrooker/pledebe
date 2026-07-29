@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"os"
 	"path/filepath"
+	"strconv"
 )
 
 // Preferences holds the small set of PMS settings pledebe needs.
@@ -91,4 +92,21 @@ func (in *Install) BackupDirs(prefs *Preferences) []string {
 		dirs = append(dirs, prefs.DatabaseBackupPath)
 	}
 	return append(dirs, in.BackupDir)
+}
+
+// butlerHours returns Plex's scheduled maintenance window, defaulting to its
+// own defaults when the preference is unset. Slow queries during Butler hours
+// are expected; the same rate during the evening is not.
+func (p *Preferences) butlerHours() (start, end int) {
+	start, end = 2, 8 // PMS defaults
+	if p == nil {
+		return start, end
+	}
+	if v, err := strconv.Atoi(p.ButlerStartHour); err == nil && v >= 0 && v <= 23 {
+		start = v
+	}
+	if v, err := strconv.Atoi(p.ButlerEndHour); err == nil && v >= 0 && v <= 23 {
+		end = v
+	}
+	return start, end
 }

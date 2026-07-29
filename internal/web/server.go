@@ -58,9 +58,10 @@ type pageData struct {
 	DayCount    int
 	SampleCount int
 
-	FreePercent float64
-	Levels      map[string]health.Level
-	DeepRun     deepStatus
+	FreePercent  float64
+	ButlerWindow string
+	Levels       map[string]health.Level
+	DeepRun      deepStatus
 }
 
 // New builds a server, parsing templates up front so a template error surfaces
@@ -130,17 +131,18 @@ func (s *Server) status(w http.ResponseWriter, _ *http.Request) {
 	dayCount, _ := s.Store.DayCount()
 
 	data := pageData{
-		Install:     s.Install,
-		SQLitePath:  s.SQLitePath,
-		Version:     s.Version,
-		Metrics:     latest,
-		Deep:        deep,
-		Summary:     health.Summarise(findings),
-		Findings:    findings,
-		DayCount:    dayCount,
-		SampleCount: sampleCount,
-		FreePercent: latest.FreeRatio() * 100,
-		Levels:      health.MetricLevels(latest, deep),
+		Install:      s.Install,
+		SQLitePath:   s.SQLitePath,
+		Version:      s.Version,
+		Metrics:      latest,
+		Deep:         deep,
+		Summary:      health.Summarise(findings),
+		Findings:     findings,
+		DayCount:     dayCount,
+		SampleCount:  sampleCount,
+		FreePercent:  latest.FreeRatio() * 100,
+		Levels:       health.MetricLevels(latest, deep),
+		ButlerWindow: butlerWindowText(latest),
 	}
 
 	cost := &deepCheckCost{
@@ -259,4 +261,15 @@ func ago(t time.Time) string {
 	default:
 		return fmt.Sprintf("%d days ago", int(d.Hours()/24))
 	}
+}
+
+// butlerWindowText names the server's actual maintenance hours, read from
+// Preferences.xml at collection time. Falling back to PMS defaults would tell a
+// reader who changed the window something untrue.
+func butlerWindowText(m *plex.Metrics) string {
+	start, end := 2, 8
+	if m != nil && m.SlowQueries != nil && m.SlowQueries.ButlerEnd != m.SlowQueries.ButlerStart {
+		start, end = m.SlowQueries.ButlerStart, m.SlowQueries.ButlerEnd
+	}
+	return fmt.Sprintf("%02d:00–%02d:00", start, end)
 }

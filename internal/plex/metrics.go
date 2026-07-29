@@ -75,6 +75,11 @@ type Metrics struct {
 	PMSVersion    string    `json:"pms_version,omitempty"`
 	VersionSeenAt time.Time `json:"version_seen_at,omitempty"`
 
+	// SlowQueries summarises PMS's own slow-query warnings since the previous
+	// poll. Plex decides what counts as slow, so this is one of the few signals
+	// pledebe does not have to invent a threshold for.
+	SlowQueries *SlowQueries `json:"slow_queries,omitempty"`
+
 	// VolumeFreeBytes is free space where the database lives. Deep checks and
 	// repairs need headroom (roughly 1x the database for a snapshot, 3x for a
 	// repair), so this gates them.
@@ -106,7 +111,10 @@ func (m Metrics) FreeRatio() float64 {
 // Errors reading individual optional values are not fatal — a missing blobs
 // database or Logs directory is normal on some installs, and a partial sample
 // is more useful than none.
-func (in *Install) Collect(ctx context.Context, db *SQLite) (*Metrics, error) {
+//
+// since bounds slow-query log scanning to lines newer than the previous poll.
+// Pass the zero time on first run to take whatever the logs still hold.
+func (in *Install) Collect(ctx context.Context, db *SQLite, since time.Time) (*Metrics, error) {
 	m := &Metrics{CollectedAt: time.Now().UTC()}
 
 	m.DatabaseBytes = fileSize(in.Database)
@@ -130,6 +138,8 @@ func (in *Install) Collect(ctx context.Context, db *SQLite) (*Metrics, error) {
 
 	prefs, _ := in.LoadPreferences()
 	in.collectBackups(m, prefs)
+	butlerStart, butlerEnd := prefs.butlerHours()
+	m.SlowQueries = in.collectSlowQueries(since, butlerStart, butlerEnd)
 	in.collectCrashes(m)
 	m.VolumeFreeBytes = freeBytes(filepath.Dir(in.Database))
 
