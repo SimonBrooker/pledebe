@@ -173,6 +173,14 @@
   .runbox button:hover { background: var(--accent); color: var(--ground); }
   .runbox button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
+  .crashlog {
+    margin: .5rem 0 0; padding: .7rem .8rem; border-radius: var(--r);
+    background: var(--surface-2); border: 1px solid var(--line);
+    font-family: var(--mono); font-size: .72rem; line-height: 1.45;
+    overflow-x: auto; max-height: 24rem; overflow-y: auto;
+    white-space: pre; color: var(--ink-2);
+  }
+
   details { margin-top: .5rem; }
   summary {
     cursor: pointer; font-size: .82rem; color: var(--accent);
@@ -366,11 +374,30 @@
         {{end}}
         <div><dt>Volume free</dt><dd class="{{index $.Levels "volumefree"}}">{{bytes .Metrics.VolumeFreeBytes}}</dd></div>
       </dl>
-      {{if .Metrics.CrashesByComponent}}
+      {{with .Metrics.LastCrash}}
       <p class="runbox-note" style="margin-top:.8rem">
-        Crash reports by component, counted across every Plex version ever installed on
-        this server — not recent activity. Only the 14-day figure above raises a finding.
+        Most recent crash: <strong>{{.Component}}</strong> on {{.At.Format "2 January 2006"}},
+        running Plex {{.PMSVersion}}.
       </p>
+
+      {{if .Excerpt}}
+      <details>
+        <summary>Show the last 40 lines before it crashed</summary>
+        <p class="runbox-note">
+          The end of <code>{{.File}}</code>. Credentials are removed before display —
+          Plex writes access tokens into its logs.
+        </p>
+        <pre class="crashlog">{{.Excerpt}}</pre>
+      </details>
+      {{else}}
+      <p class="runbox-note">
+        That crash left only a binary minidump, which has no readable content.
+      </p>
+      {{end}}
+      {{end}}
+
+      {{if .Metrics.RecentCrashCount}}
+      <p class="runbox-note" style="margin-top:.8rem">By component, in the last 14 days:</p>
       <dl class="kv" style="margin-top:.4rem">
         {{range $component, $n := .Metrics.CrashesByComponent}}<dt>{{$component}}</dt><dd>{{$n}}</dd>{{end}}
       </dl>

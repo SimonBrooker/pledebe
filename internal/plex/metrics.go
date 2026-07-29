@@ -63,6 +63,11 @@ type Metrics struct {
 	// "PLEX MEDIA SERVER", "PLEX MEDIA SCANNER", "PLEX TUNER SERVICE".
 	CrashesByComponent map[string]int `json:"crashes_by_component,omitempty"`
 
+	// LastCrash describes the most recent crash. A count alone is not
+	// actionable; what crashed, under which Plex version, and what the log said
+	// just before it died, is.
+	LastCrash *CrashReport `json:"last_crash,omitempty"`
+
 	// PMSVersion is inferred from the newest "Crash Reports" subdirectory, and
 	// VersionSeenAt is when that directory appeared — an approximate upgrade
 	// date. Schema migrations are a risk window, so knowing a problem began
@@ -74,6 +79,18 @@ type Metrics struct {
 	// repairs need headroom (roughly 1x the database for a snapshot, 3x for a
 	// repair), so this gates them.
 	VolumeFreeBytes int64 `json:"volume_free_bytes"`
+}
+
+// CrashReport is the most recent crash, with an excerpt where one is readable.
+type CrashReport struct {
+	At         time.Time `json:"at"`
+	Component  string    `json:"component"`
+	PMSVersion string    `json:"pms_version"`
+	File       string    `json:"file"`
+
+	// Excerpt is the tail of the crash log, redacted. Empty for bare .dmp
+	// minidumps, which are binary and meaningless to display.
+	Excerpt string `json:"excerpt,omitempty"`
 }
 
 // FreeRatio returns free pages as a fraction of total pages.
@@ -194,6 +211,14 @@ func (in *Install) collectCrashes(m *Metrics) {
 
 	cutoff := time.Now().Add(-recentCrashWindow)
 	m.CrashesByComponent = make(map[string]int)
+	defer func() {
+		// Read the excerpt once, after the walk has settled on a winner —
+		// rather than re-reading a 6 MB log every time a newer file is found.
+		if m.LastCrash != nil && hasReadableLog(m.LastCrash.File) {
+			m.LastCrash.Excerpt = crashExcerpt(filepath.Join(
+				root, m.LastCrash.PMSVersion, m.LastCrash.Component, m.LastCrash.File))
+		}
+	}()
 
 	for _, v := range versions {
 		if !v.IsDir() {
@@ -215,13 +240,21 @@ func (in *Install) collectCrashes(m *Metrics) {
 			if d.IsDir() {
 				return nil
 			}
+			// The directory also holds .RateLimit.json, the crash uploader's own
+			// state. It is rewritten constantly, so counting it would report a
+			// fresh crash every day forever.
+			if !isCrashFile(d.Name()) {
+				return nil
+			}
 
 			m.CrashReportCount++
 
 			// Component is the first path element below the version directory.
+			component := ""
 			if rel, relErr := filepath.Rel(versionDir, path); relErr == nil {
 				if parts := strings.Split(rel, string(os.PathSeparator)); len(parts) > 1 {
-					m.CrashesByComponent[parts[0]]++
+					component = parts[0]
+					m.CrashesByComponent[component]++
 				}
 			}
 
@@ -231,6 +264,12 @@ func (in *Install) collectCrashes(m *Metrics) {
 			}
 			if info.ModTime().After(m.NewestCrashAt) {
 				m.NewestCrashAt = info.ModTime()
+				m.LastCrash = &CrashReport{
+					At:         info.ModTime(),
+					Component:  component,
+					PMSVersion: v.Name(),
+					File:       d.Name(),
+				}
 			}
 			if info.ModTime().After(cutoff) {
 				m.RecentCrashCount++
