@@ -25,6 +25,8 @@ import (
 	"github.com/SimonBrooker/pledebe/internal/web"
 )
 
+// version is set at build time from the git tag. "dev" means an untagged
+// local build, which links to the releases list rather than a release page.
 var version = "dev"
 
 func main() {

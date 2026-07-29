@@ -3,6 +3,7 @@ name: build
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
@@ -83,7 +84,20 @@ jobs:
           # Lowercase: GHCR rejects uppercase in image names, but the GitHub
           # owner is "SimonBrooker".
           IMAGE=$(echo "${{ env.IMAGE }}" | tr '[:upper:]' '[:lower:]')
-          echo "tags=$IMAGE:edge,$IMAGE:${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          REF="${{ github.ref }}"
+
+          if [ "${REF#refs/tags/v}" != "$REF" ]; then
+            # A release. Publish :latest and the version series, so that
+            # :1 and :1.0 follow patch releases without anyone re-reading docs.
+            V="${REF#refs/tags/v}"
+            MAJOR="${V%%.*}"
+            MINOR="${V%.*}"
+            echo "tags=$IMAGE:latest,$IMAGE:$V,$IMAGE:$MINOR,$IMAGE:$MAJOR" >> "$GITHUB_OUTPUT"
+            echo "version=$V" >> "$GITHUB_OUTPUT"
+          else
+            echo "tags=$IMAGE:edge,$IMAGE:${{ github.sha }}" >> "$GITHUB_OUTPUT"
+            echo "version=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          fi
 
       - uses: docker/build-push-action@v6
         with:
@@ -91,6 +105,6 @@ jobs:
           platforms: linux/amd64,linux/arm64,linux/arm/v7
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
-          build-args: VERSION=${{ github.sha }}
+          build-args: VERSION=${{ steps.meta.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

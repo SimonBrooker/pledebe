@@ -47,6 +47,7 @@ type pageData struct {
 	Install    *plex.Install
 	SQLitePath string
 	Version    string
+	VersionURL string
 
 	Metrics   *plex.Metrics
 	Deep      *plex.DeepCheck
@@ -135,6 +136,7 @@ func (s *Server) status(w http.ResponseWriter, _ *http.Request) {
 		Install:      s.Install,
 		SQLitePath:   s.SQLitePath,
 		Version:      s.Version,
+		VersionURL:   releaseURL(s.Version),
 		Metrics:      latest,
 		Deep:         deep,
 		Summary:      health.Summarise(findings),
@@ -274,4 +276,37 @@ func butlerWindowText(m *plex.Metrics) string {
 		start, end = m.SlowQueries.ButlerStart, m.SlowQueries.ButlerEnd
 	}
 	return fmt.Sprintf("%02d:00–%02d:00", start, end)
+}
+
+// releaseURL links the displayed version to its GitHub release.
+//
+// A released build links to its own release notes; a development build links to
+// the releases list, since there is no page for an untagged commit.
+func releaseURL(version string) string {
+	const base = "https://github.com/SimonBrooker/pledebe/releases"
+
+	v := strings.TrimPrefix(version, "v")
+	if v == "" || !isSemver(v) {
+		return base
+	}
+	return base + "/tag/v" + v
+}
+
+// isSemver reports whether v looks like MAJOR.MINOR.PATCH. Deliberately strict:
+// linking a commit SHA to a non-existent release page would be worse than
+// linking to the list.
+func isSemver(v string) bool {
+	parts := strings.Split(v, ".")
+	if len(parts) != 3 {
+		return false
+	}
+	for _, p := range parts {
+		if p == "" {
+			return false
+		}
+		if _, err := strconv.Atoi(p); err != nil {
+			return false
+		}
+	}
+	return true
 }

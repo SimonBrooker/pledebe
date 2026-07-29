@@ -308,3 +308,30 @@ func TestNoActionBannerWhenHealthy(t *testing.T) {
 		t.Error("action banner shown on a healthy server")
 	}
 }
+
+// The version in the top right links to its own release notes when the build is
+// tagged, and to the releases list otherwise — linking a commit SHA to a
+// non-existent release page would be worse than linking to the list.
+func TestVersionLink(t *testing.T) {
+	for version, want := range map[string]string{
+		"1.0.0":         "https://github.com/SimonBrooker/pledebe/releases/tag/v1.0.0",
+		"v1.2.3":        "https://github.com/SimonBrooker/pledebe/releases/tag/v1.2.3",
+		"dev":           "https://github.com/SimonBrooker/pledebe/releases",
+		"f0f623c8a91b2": "https://github.com/SimonBrooker/pledebe/releases",
+		"":              "https://github.com/SimonBrooker/pledebe/releases",
+	} {
+		if got := releaseURL(version); got != want {
+			t.Errorf("releaseURL(%q) = %q, want %q", version, got, want)
+		}
+	}
+}
+
+func TestVersionRenderedInAppBar(t *testing.T) {
+	body := render(t, newTestServer(t, fullMetrics(), nil))
+	if !strings.Contains(body, `class="app-version"`) {
+		t.Error("version link missing from the app bar")
+	}
+	if !strings.Contains(body, "github.com/SimonBrooker/pledebe/releases") {
+		t.Error("version does not link to releases")
+	}
+}
