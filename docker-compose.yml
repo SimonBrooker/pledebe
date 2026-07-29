@@ -37,9 +37,10 @@ services:
       PLEDEBE_USER: ${PLEDEBE_USER:-}
       PLEDEBE_PASSWORD: ${PLEDEBE_PASSWORD:-}
 
-      # Set to "docker" to have pledebe copy Plex's SQLite build out of the
-      # Plex container itself, instead of you running docker cp by hand. Also
-      # uncomment the socket-proxy service at the bottom of this file.
+      # ADVANCED, opt-in. Leave as "mount" unless you have read the caveat in
+      # .env.example: a socket proxy that is unreachable at startup stops
+      # pledebe from starting at all, so it costs the whole service rather than
+      # just the one step it saves.
       PLEX_SQLITE_SOURCE: ${PLEX_SQLITE_SOURCE:-mount}
       PLEX_CONTAINER: ${PLEX_CONTAINER:-plex}
       DOCKER_HOST: ${DOCKER_HOST:-}

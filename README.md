@@ -57,29 +57,7 @@ SCALE, OMV, bare Linux or Docker Desktop. Published for `amd64`, `arm64` and
 ### 1. Give pledebe Plex's SQLite
 
 pledebe needs Plex's own SQLite build — stock `sqlite3` cannot read a Plex
-database. There are two ways to provide it.
-
-#### Automatic (recommended)
-
-pledebe copies it out of your Plex container itself. In `.env`:
-
-```bash
-PLEX_SQLITE_SOURCE=docker
-PLEX_CONTAINER=plex
-DOCKER_HOST=tcp://pledebe-socket-proxy:2375
-```
-
-Then uncomment the `socket-proxy` service in `docker-compose.yml` and comment
-out the `/plexbin` volume. That proxy runs with `POST` disabled, so pledebe can
-only *read* the Docker API — it issues two GETs and cannot stop, start or exec
-anything. The copy is cached and repeated only when Plex is updated.
-
-This works with any image; pledebe tries each known install location and
-verifies by finding the binary rather than trusting a path.
-
-#### Manual
-
-If you would rather not give pledebe any Docker access, copy it yourself.
+database. Copy it once, by hand.
 
 **Run this on your Docker host** — the Unraid terminal, TrueNAS shell, or an SSH
 session on the machine running Docker. Not inside a container. Do it from the
@@ -103,6 +81,34 @@ which you have?
 ```bash
 docker exec plex sh -c "find / -xdev -type f -name 'Plex SQLite' 2>/dev/null"
 ```
+
+<details>
+<summary>Optional: let pledebe copy it automatically instead</summary>
+
+pledebe can fetch the directory itself, removing this step. It costs a second
+container and a Docker API grant, so it is opt-in rather than the default.
+
+In `.env`:
+
+```bash
+PLEX_SQLITE_SOURCE=docker
+PLEX_CONTAINER=plex
+DOCKER_HOST=tcp://pledebe-socket-proxy:2375
+```
+
+Then uncomment the `socket-proxy` service in `docker-compose.yml` and comment
+out the `/plexbin` volume.
+
+The proxy runs with `POST` disabled, so pledebe can only *read* the Docker API —
+it issues two GETs and cannot stop, start or exec anything. The copy is cached
+and repeated only when Plex is updated.
+
+**Caveat:** if the proxy is unreachable at startup, pledebe exits rather than
+starting without it. A misconfigured proxy therefore costs you the whole
+service, not just this one step — which is why the manual copy remains the
+recommended path.
+
+</details>
 
 ### 2. Run it
 
