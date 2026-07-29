@@ -89,6 +89,7 @@ func Evaluate(m *plex.Metrics, dc *plex.DeepCheck) []Finding {
 
 	add(integrityFinding(dc))
 	add(ftsFinding(dc))
+	add(preferencesFinding(m))
 	add(backupFinding(m))
 	add(diskFinding(m))
 	add(crashFinding(m))
@@ -188,6 +189,24 @@ func roundDuration(d time.Duration) string {
 	default:
 		return fmt.Sprintf("%d days", int(d.Hours()/24))
 	}
+}
+
+// preferencesFinding surfaces an unreadable Preferences.xml once, as its own
+// finding.
+//
+// Without that file pledebe cannot tell where Plex writes backups or when it
+// runs maintenance, so the consequences appear in three separate places on the
+// page. Each was individually made honest, but a reader still had to infer the
+// single shared cause from scattered "unknown" results. One finding names it,
+// and carries the fix.
+func preferencesFinding(m *plex.Metrics) Finding {
+	if m == nil || m.PreferencesNote == "" {
+		return Finding{LevelOK, "Plex settings readable",
+			"backup location and maintenance window read from Preferences.xml"}
+	}
+	return Finding{LevelUnknown, "Cannot read Plex's settings",
+		m.PreferencesNote + ". Until then pledebe cannot tell where backups are " +
+			"written or when Plex runs maintenance, so those checks report unknown."}
 }
 
 func backupFinding(m *plex.Metrics) Finding {

@@ -391,11 +391,12 @@
       {{end}}
     </section>
 
-    {{with .Metrics.SlowQueries}}
     <section>
       <h2 class="grp">Slow queries
         <span class="aside">Plex's own warnings, since the previous check</span>
       </h2>
+      {{with .Metrics.SlowQueries}}
+      {{if .Count}}
       <dl class="grid">
         <div><dt>Warnings</dt><dd>{{num .Count}}</dd></div>
         <div><dt>Per hour</dt><dd>{{printf "%.0f" .PerHour}}</dd></div>
@@ -404,15 +405,30 @@
         <div><dt>Slowest</dt><dd>{{printf "%.0f ms" .Max}}</dd></div>
         <div><dt>During maintenance</dt><dd>{{num .InButlerWindow}}</dd></div>
       </dl>
+      {{else}}
+      <dl class="grid">
+        <div><dt>Warnings</dt><dd class="ok">0</dd></div>
+      </dl>
+      <p class="runbox-note" style="margin-top:.7rem">
+        Plex logged no slow queries since the last check. This section fills in when
+        it does — most often during scheduled maintenance.
+      </p>
+      {{end}}
       <p class="runbox-note" style="margin-top:.7rem">
         Plex decides what counts as slow, not pledebe. These are not graded: there is
         no baseline yet for what is normal on a library this size, and a threshold
-        invented without one would be a guess. Watch the trend rather than the number —
-        and note that warnings during the {{$.ButlerWindow}} maintenance window are
-        expected, since Plex is doing scheduled work then.
+        invented without one would be a guess. Watch the trend rather than the number.
+        {{if $.ButlerWindow}}Warnings during the {{$.ButlerWindow}} maintenance window
+        are expected, since Plex is doing scheduled work then.{{end}}
       </p>
+      {{else}}
+      <p class="runbox-note" style="margin-top:.7rem">
+        pledebe cannot read Plex's logs, so slow queries are unmeasured — this is not
+        a report that there were none. Check that the Plex config directory is mounted
+        and that its <code>Logs</code> folder is readable.
+      </p>
+      {{end}}
     </section>
-    {{end}}
 
     <section>
       <h2 class="grp">Backups</h2>
