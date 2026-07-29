@@ -2,6 +2,9 @@ package plex
 
 import (
 	"encoding/xml"
+	"errors"
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -51,7 +54,21 @@ func (in *Install) LoadPreferences() (*Preferences, error) {
 	path := filepath.Join(in.ConfigRoot, "Preferences.xml")
 	f, err := os.Open(path)
 	if err != nil {
-		return &Preferences{}, nil
+		// A MISSING file means PMS defaults apply, which is fine. An
+		// UNREADABLE one means we are blind: we cannot tell where backups go
+		// or when Plex runs maintenance, and quietly defaulting produced a
+		// confident "backups are 92 days stale" on a server backing up daily.
+		if errors.Is(err, fs.ErrNotExist) {
+			return &Preferences{}, nil
+		}
+		if uid, ok := fileOwnerUID(path); ok {
+			return &Preferences{}, fmt.Errorf(
+				"cannot read %s: it is owned by uid %d and pledebe runs as uid %d — "+
+					"set PUID=%d (and PGID to match) so backup and maintenance "+
+					"settings can be read",
+				path, uid, os.Getuid(), uid)
+		}
+		return &Preferences{}, fmt.Errorf("cannot read %s: %w", path, err)
 	}
 	defer f.Close()
 

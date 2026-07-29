@@ -346,3 +346,44 @@ func TestNoConfiguredPathMeansBesideTheDatabaseIsAuthoritative(t *testing.T) {
 		t.Error("expected a staleness warning when the fallback is authoritative")
 	}
 }
+
+// Preferences.xml is mode 0600 on hotio installs. A pledebe running with a
+// different PUID cannot read it, so it does not know where PMS writes backups —
+// and quietly defaulting produced a confident "92 days stale" on a server
+// backing up daily. Verified on a live server 2026-07-29.
+func TestUnreadablePreferencesMakesBackupsUnknown(t *testing.T) {
+	m := &plex.Metrics{
+		BackupCount:            4,
+		BackupDirVisible:       true,
+		BackupDirAuthoritative: true, // it *looks* authoritative: no path was read
+		BackupDirSearched:      "/plexconfig/Plug-in Support/Databases",
+		NewestBackupAt:         time.Now().Add(-92 * 24 * time.Hour),
+		PreferencesNote:        "cannot read Preferences.xml: owned by uid 1000, running as uid 99",
+	}
+
+	f, ok := find(Evaluate(m, nil), "Backup freshness unknown")
+	if !ok || f.Level != LevelUnknown {
+		t.Fatalf("got %+v (ok=%v), want Unknown", f, ok)
+	}
+	// The message has to carry the fix, not just the symptom.
+	if !strings.Contains(f.Detail, "uid") {
+		t.Error("detail must include the ownership problem so the user can fix it")
+	}
+	if _, warned := find(Evaluate(m, nil), "Database backups are stale"); warned {
+		t.Error("reported staleness while blind to where backups are written")
+	}
+}
+
+// Readable preferences must not be affected.
+func TestReadablePreferencesStillWarnsOnStale(t *testing.T) {
+	m := &plex.Metrics{
+		BackupCount:            2,
+		BackupDirVisible:       true,
+		BackupDirAuthoritative: true,
+		BackupDirSearched:      "/plexbackups",
+		NewestBackupAt:         time.Now().Add(-92 * 24 * time.Hour),
+	}
+	if _, ok := find(Evaluate(m, nil), "Database backups are stale"); !ok {
+		t.Error("expected a staleness warning when preferences were readable")
+	}
+}

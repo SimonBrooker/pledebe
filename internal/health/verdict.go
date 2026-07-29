@@ -202,6 +202,14 @@ func backupFinding(m *plex.Metrics) Finding {
 		return Finding{LevelUnknown, "Backup freshness unknown", detail}
 	}
 
+	// We could not read Preferences.xml, so we do not know where PMS writes
+	// backups. Anything found may be leftovers, and its age proves nothing.
+	if m.PreferencesNote != "" && m.BackupCount > 0 {
+		return Finding{LevelUnknown, "Backup freshness unknown",
+			"pledebe cannot read Plex's settings, so it does not know where backups " +
+				"are written. The dated files it found may be leftovers. " + m.PreferencesNote}
+	}
+
 	// Backups were found, but not where PMS actually writes them. Dated files
 	// linger beside the database long after ButlerDatabaseBackupPath is pointed
 	// elsewhere, so their age says nothing about whether backups are running.

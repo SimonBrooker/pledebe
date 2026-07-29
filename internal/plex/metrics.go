@@ -50,6 +50,13 @@ type Metrics struct {
 	BackupDirVisible  bool   `json:"backup_dir_visible"`
 	BackupDirExpected string `json:"backup_dir_expected,omitempty"`
 
+	// PreferencesNote records why Preferences.xml could not be read, if it
+	// could not. Empty means it was read, or is genuinely absent.
+	//
+	// Without it pledebe does not know where PMS writes backups or when it runs
+	// maintenance, so several findings must report Unknown rather than defaults.
+	PreferencesNote string `json:"preferences_note,omitempty"`
+
 	// BackupDirAuthoritative reports whether the directory we scanned is the
 	// one PMS actually writes to.
 	//
@@ -145,7 +152,10 @@ func (in *Install) Collect(ctx context.Context, db *SQLite, since time.Time) (*M
 	}
 	m.FreelistBytes = m.FreelistCount * m.PageSize
 
-	prefs, _ := in.LoadPreferences()
+	prefs, prefsErr := in.LoadPreferences()
+	if prefsErr != nil {
+		m.PreferencesNote = prefsErr.Error()
+	}
 	in.collectBackups(m, prefs)
 	butlerStart, butlerEnd := prefs.butlerHours()
 	m.SlowQueries = in.collectSlowQueries(since, butlerStart, butlerEnd)

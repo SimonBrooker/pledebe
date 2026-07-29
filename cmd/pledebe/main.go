@@ -213,6 +213,9 @@ func serve(install *plex.Install, db *plex.SQLite, dataDir, addr string,
 	// that into a glance.
 	log.Printf("pledebe %s (built %s)", version, buildInfo())
 	log.Printf("watching %s", install.Database)
+	if note := startupPrefsWarning(install); note != "" {
+		log.Printf("WARNING: %s", note)
+	}
 	log.Printf("status page on %s, collecting every %s", addr, interval)
 	web.WarnIfExposed(addr, auth)
 
@@ -492,4 +495,14 @@ func buildInfo() string {
 		}
 	}
 	return "unknown"
+}
+
+// startupPrefsWarning surfaces an unreadable Preferences.xml at boot rather
+// than leaving it to be inferred from a wrong finding later. Without that file
+// pledebe cannot tell where backups are written or when Plex runs maintenance.
+func startupPrefsWarning(install *plex.Install) string {
+	if _, err := install.LoadPreferences(); err != nil {
+		return err.Error()
+	}
+	return ""
 }
