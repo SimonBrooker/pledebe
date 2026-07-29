@@ -2,7 +2,7 @@ name: build
 
 on:
   push:
-    branches: [main]
+    branches: [main, beta]
     tags: ['v*']
   pull_request:
   workflow_dispatch:
@@ -61,8 +61,20 @@ jobs:
           bash -n scripts/*.sh
           shellcheck -S warning scripts/*.sh || true   # advisory for now
 
+  # Publishes from the beta branch and from release tags only.
+  #
+  # main deliberately publishes nothing. It is the promotion target: work is
+  # tested on :beta, merged to main, then tagged — so :latest only ever moves
+  # when a release is cut, never because something was pushed.
+  #
+  # Pull requests still build the image (without pushing) so a broken Dockerfile
+  # is caught before merge.
   image:
     needs: check
+    if: >-
+      github.event_name == 'pull_request' ||
+      github.ref == 'refs/heads/beta' ||
+      startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -86,17 +98,38 @@ jobs:
           IMAGE=$(echo "${{ env.IMAGE }}" | tr '[:upper:]' '[:lower:]')
           REF="${{ github.ref }}"
 
+          SHORT="$(echo "${{ github.sha }}" | cut -c1-7)"
+
           if [ "${REF#refs/tags/v}" != "$REF" ]; then
-            # A release. Publish :latest and the version series, so that
-            # :1 and :1.0 follow patch releases without anyone re-reading docs.
             V="${REF#refs/tags/v}"
-            MAJOR="${V%%.*}"
-            MINOR="${V%.*}"
-            echo "tags=$IMAGE:latest,$IMAGE:$V,$IMAGE:$MINOR,$IMAGE:$MAJOR" >> "$GITHUB_OUTPUT"
+
+            case "$V" in
+              *-*)
+                # A prerelease (v1.2.0-beta.1). Publish ONLY the exact version.
+                # Deriving a series from it would give ":1.2.0-beta" and, worse,
+                # move :latest — shipping a beta to every user.
+                echo "tags=$IMAGE:$V" >> "$GITHUB_OUTPUT"
+                ;;
+              *)
+                # A release. Publish :latest and the version series, so someone
+                # pinning :1 follows patch releases without re-reading docs.
+                MAJOR="${V%%.*}"
+                MINOR="${V%.*}"
+                echo "tags=$IMAGE:latest,$IMAGE:$V,$IMAGE:$MINOR,$IMAGE:$MAJOR" >> "$GITHUB_OUTPUT"
+                ;;
+            esac
             echo "version=$V" >> "$GITHUB_OUTPUT"
+
+          elif [ "$REF" = "refs/heads/beta" ]; then
+            # Testers follow :beta. The sha tag lets a specific build be pinned
+            # or rolled back to while a problem is being chased.
+            echo "tags=$IMAGE:beta,$IMAGE:beta-$SHORT" >> "$GITHUB_OUTPUT"
+            echo "version=beta-$SHORT" >> "$GITHUB_OUTPUT"
+
           else
-            echo "tags=$IMAGE:edge,$IMAGE:${{ github.sha }}" >> "$GITHUB_OUTPUT"
-            echo "version=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+            # Pull request: built to prove the Dockerfile works, never pushed.
+            echo "tags=$IMAGE:pr-$SHORT" >> "$GITHUB_OUTPUT"
+            echo "version=pr-$SHORT" >> "$GITHUB_OUTPUT"
           fi
 
       - uses: docker/build-push-action@v6

@@ -231,6 +231,23 @@ docker run --rm -v "/path/to/plex/config:/plexconfig:ro" -v ./plexbin:/plexbin:r
 
 ---
 
+## Testing pre-release builds
+
+`:latest` only moves when a release is tagged. If you would like to try changes
+before they are released, use the beta channel:
+
+```bash
+ghcr.io/simonbrooker/pledebe:beta
+```
+
+It is built from the `beta` branch and passes the same tests, but it has not
+been through a release. Expect the occasional rough edge, and please
+[open an issue](https://github.com/SimonBrooker/pledebe/issues) if you find one —
+that is what it is for.
+
+Individual beta builds are also tagged `:beta-<sha>` so you can pin or roll back
+to a specific one.
+
 ## Security
 
 pledebe exposes your Plex file paths and database details, and has a button that
