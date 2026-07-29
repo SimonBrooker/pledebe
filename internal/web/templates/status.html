@@ -236,7 +236,7 @@
       <dl class="grid">
         <div><dt>library.db</dt><dd>{{bytes .Metrics.DatabaseBytes}}</dd></div>
         <div><dt>blobs.db</dt><dd>{{bytes .Metrics.BlobsBytes}}</dd></div>
-        <div><dt>Write-ahead log</dt><dd class="{{index $.Levels "wal"}}">{{bytes .Metrics.WALBytes}}</dd></div>
+        <div><dt>Write-ahead log (WAL)</dt><dd class="{{index $.Levels "wal"}}">{{bytes .Metrics.WALBytes}}</dd></div>
         <div><dt>Shared memory</dt><dd>{{bytes .Metrics.SHMBytes}}</dd></div>
         <div><dt>Pages</dt><dd>{{num .Metrics.PageCount}}</dd></div>
         <div><dt>Page size</dt><dd>{{num .Metrics.PageSize}} B</dd></div>

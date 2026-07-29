@@ -250,10 +250,10 @@ func crashFinding(m *plex.Metrics) Finding {
 
 func walFinding(m *plex.Metrics) Finding {
 	if m.WALBytes > walLarge {
-		return Finding{LevelWarn, "Write-ahead log is large",
+		return Finding{LevelWarn, "Write-ahead log (WAL) is large",
 			fmt.Sprintf("%s -- it may not be checkpointing", humanBytes(m.WALBytes))}
 	}
-	return Finding{LevelOK, "Write-ahead log normal", humanBytes(m.WALBytes)}
+	return Finding{LevelOK, "Write-ahead log (WAL) normal", humanBytes(m.WALBytes)}
 }
 
 // bloatFinding never warns. The freelist is a floor on reclaimable space and
