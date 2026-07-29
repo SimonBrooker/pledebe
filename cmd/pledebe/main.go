@@ -54,7 +54,7 @@ func main() {
 	)
 	flag.Parse()
 
-	install, db, err := setup(*configRoot, *sqliteDir, *backupDir)
+	install, db, err := setup(*configRoot, *sqliteDir, *backupDir, *dataDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "pledebe: %v\n", err)
 		os.Exit(1)
@@ -82,7 +82,7 @@ func main() {
 	}
 }
 
-func setup(configRoot, sqliteDir, backupDir string) (*plex.Install, *plex.SQLite, error) {
+func setup(configRoot, sqliteDir, backupDir, dataDir string) (*plex.Install, *plex.SQLite, error) {
 	install, err := plex.Discover(configRoot)
 	if err != nil {
 		return nil, nil, err
@@ -90,10 +90,50 @@ func setup(configRoot, sqliteDir, backupDir string) (*plex.Install, *plex.SQLite
 	install.BackupDirOverride = backupDir
 
 	db, err := plex.FindSQLite(sqliteDir)
+	if err == nil {
+		return install, db, nil
+	}
+
+	// Nothing mounted. If the operator opted into Docker extraction, fetch it
+	// ourselves rather than making them run `docker cp` by hand.
+	if os.Getenv("PLEX_SQLITE_SOURCE") != "docker" {
+		return nil, nil, fmt.Errorf(
+			"%w\n\nEither mount Plex's plexmediaserver directory at %s, or set "+
+				"PLEX_SQLITE_SOURCE=docker (with PLEX_CONTAINER) and let pledebe "+
+				"copy it out of the Plex container itself",
+			err, sqliteDir)
+	}
+
+	db, err = extractSQLite(dataDir)
 	if err != nil {
 		return nil, nil, err
 	}
 	return install, db, nil
+}
+
+// extractSQLite copies Plex's install directory out of its container using the
+// Docker API. Only GET requests are issued, so a socket proxy with POST
+// disabled is enough -- it cannot stop, start or exec anything.
+func extractSQLite(dataDir string) (*plex.SQLite, error) {
+	container := envOr("PLEX_CONTAINER", "plex")
+	host := envOr("DOCKER_HOST", "unix:///var/run/docker.sock")
+
+	ex, err := plex.NewDockerExtractor(host, container)
+	if err != nil {
+		return nil, err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	defer cancel()
+
+	log.Printf("extracting Plex SQLite from container %q via %s", container, host)
+	dir, err := ex.Extract(ctx, filepath.Join(dataDir, "plexbin"))
+	if err != nil {
+		return nil, fmt.Errorf("extracting Plex SQLite: %w", err)
+	}
+	log.Printf("extracted to %s", dir)
+
+	return plex.FindSQLite(dir)
 }
 
 func runOnce(install *plex.Install, db *plex.SQLite, asJSON bool) error {

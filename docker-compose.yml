@@ -36,6 +36,13 @@ services:
       # interfaces without credentials.
       PLEDEBE_USER: ${PLEDEBE_USER:-}
       PLEDEBE_PASSWORD: ${PLEDEBE_PASSWORD:-}
+
+      # Set to "docker" to have pledebe copy Plex's SQLite build out of the
+      # Plex container itself, instead of you running docker cp by hand. Also
+      # uncomment the socket-proxy service at the bottom of this file.
+      PLEX_SQLITE_SOURCE: ${PLEX_SQLITE_SOURCE:-mount}
+      PLEX_CONTAINER: ${PLEX_CONTAINER:-plex}
+      DOCKER_HOST: ${DOCKER_HOST:-}
     volumes:
       # The Plex config root — pledebe scans it for the database and never
       # writes to it.
@@ -48,7 +55,8 @@ services:
       # Until automatic acquisition lands, extract it once:
       #   docker cp <plex-container>:/usr/lib/plexmediaserver ./plexbin
       # hotio images keep it at /app/bin/usr/lib/plexmediaserver instead.
-      - ${PLEX_SQLITE_DIR:?set PLEX_SQLITE_DIR in .env}:/plexbin:ro
+      # Not needed when PLEX_SQLITE_SOURCE=docker — comment this line out then.
+      - ${PLEX_SQLITE_DIR:-./plexbin}:/plexbin:ro
 
       # OPTIONAL. PMS records its backup path (ButlerDatabaseBackupPath) in its
       # own mount namespace, which pledebe cannot resolve. Mount the same
