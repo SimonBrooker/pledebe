@@ -1,91 +1,223 @@
 # pledebe
 
-A Plex database health monitor that happens to have a repair button.
+**Watch your Plex database before it breaks.**
 
-Plex databases rot quietly: search stops returning results, the library balloons
-to tens of gigabytes, an unclean shutdown corrupts a page. You find out weeks
-later. [DBRepair](https://github.com/ChuckPa/DBRepair) fixes all of that well —
-but only once you already know something is wrong.
+Plex databases fail quietly. Search stops returning results, adding an item to a
+collection starts throwing errors, the library balloons to tens of gigabytes, an
+unclean shutdown corrupts a page. You usually find out weeks later, and by then
+you have no idea when it started.
 
-pledebe watches continuously, tells you *when* a repair is warranted and *which*
-one, and keeps the history that turns "search feels slow" into "the FTS index
-failed its check the night of the 14th, same night as an unclean shutdown".
+pledebe checks continuously, tells you plainly whether anything is wrong, and
+keeps the history that answers *when did this begin*.
 
-Status: **pre-alpha, nothing works yet.** See [docs/platforms.md](docs/platforms.md).
+It is **read-only**. It never writes to your Plex database. When something needs
+repairing it points you at [DBRepair](https://github.com/ChuckPa/DBRepair),
+which is excellent at that job.
 
-## Design commitments
+![pledebe status page](docs/images/status.png)
 
-- **Monitor first, repair second.** The default deployment is read-only, has no
-  Docker socket, and cannot damage anything.
-- **Never touch the live database.** Deep checks run against a `VACUUM INTO`
-  snapshot, which costs one read lock and yields an exact bloat figure for free.
-- **Restore beats repair.** When a good dated backup exists, we say so before we
-  offer to run a repair.
-- **Guided, not magic, off Docker.** On Synology/QNAP/TrueNAS we diagnose and
-  hand you the exact command. We do not invent ways to stop PMS. Windows PMS is
-  monitored but not repaired — full detail, no repair path.
-- **DBRepair is vendored and pinned.** Its menu output is our API; upstream bumps
-  go through contract tests before they ship.
-- **No signal alerts until it is calibrated against a healthy database.** The
-  first detector we tried fired on a perfectly good library — see
-  [docs/signals.md](docs/signals.md).
+---
 
-## Roadmap
+## What it checks
 
-| # | Milestone | Gate |
-|---|---|---|
-| 0 | ~~Spike — validate the snapshot premise on a real library~~ **done 2026-07-28** | see below |
-| 1 | ~~Walking skeleton: metric poll, verdict, history db, one page~~ **done** | read-only |
-| 2 | Log tailer, config-driven patterns, rotation handling | |
-| 3 | Fixtures + CI, corrupt/bloated test databases | before any write path |
-| 4 | Guided repair — per-platform command generation (Linux/NAS; Windows stays monitor-only) | |
-| 5 | Automated repair — Docker only, opt-in profile, socket | explicit opt-in |
-| 6 | `upstream-sync.yml`, contract tests, GHCR publish | |
-
-## Running it
-
-```bash
-cp .env.example .env && docker compose up -d
-```
-
-Status page on `http://<host>:8080`. It collects every 15 minutes, keeps 90 days
-of history, and never writes to your Plex data.
-
-For a one-off report without starting the service, add `-once`:
-
-```bash
-docker run --rm -v "/path/to/plex/config:/plexconfig:ro" -v ./plexbin:/plexbin:ro ghcr.io/simonbrooker/pledebe:edge -once
-```
-
-## Step 0: run the spike
-
-Everything above assumes you can snapshot a live Plex database cheaply. Prove it
-before writing application code. On the Plex host:
-
-```bash
-./scripts/spike.sh -c plex -s /mnt/user/appdata/pledebe/scratch
-```
-
-It is read-only against Plex, times the snapshot, reports real vs reclaimable
-size, runs integrity and FTS checks on the copy, and tests whether an extracted
-Plex SQLite runs standalone.
-
-### Result (hotio/plex on Unraid, 1139MB library, 2026-07-28)
-
-| | |
+| Check | Why it matters |
 |---|---|
-| `VACUUM INTO` | **4s** — cheap enough to run nightly |
-| `integrity_check` on the snapshot | 6s, `ok` |
-| Query latency baseline | 57 / 55 / 66 ms |
-| Reclaimable | 14MB actual vs 1MB predicted by freelist |
-| Plex SQLite extraction | `docker cp` works; **read-only socket sufficient** |
-| Standalone binary | works, but needs the **whole 218MB directory** |
-| FTS `integrity-check` | fires on a healthy database — **rejected as a signal** |
+| `PRAGMA integrity_check` | SQLite's own verdict on whether the file is damaged |
+| **Full-text search indexes** | These corrupt *while the standard integrity check passes*. The symptom is adding to a collection or editing metadata failing — search keeps working, so it goes unnoticed for months |
+| Backup freshness | Plex's scheduled backup failing silently is common, and nobody notices until they need it |
+| Free space | A repair needs roughly 3× the database size; running out partway through is the worst possible outcome |
+| Database size and bloat | Measured exactly, from a snapshot — not estimated |
+| Slow queries | Plex logs these itself; pledebe counts them and separates scheduled-maintenance noise from the rest |
+| Crashes | With the last crash log, so you can see what actually happened |
+| Write-ahead log, page geometry, Plex version history | Context for everything above |
 
-**Verdict: go.** The monitor-first design holds. Two findings changed it — see
-[docs/signals.md](docs/signals.md) for the FTS rejection and the replacement
-detector, and [docs/platforms.md](docs/platforms.md) for the binary-acquisition
-consequences.
+The integrity work runs against a `VACUUM INTO` snapshot, so **Plex is never
+blocked** — no stopping the server, no locked library. On a 1.1 GB database the
+whole thing takes about ten seconds.
+
+---
+
+## Requirements
+
+- **Plex running in Docker.** pledebe needs Plex's own SQLite build, and today
+  the only way to obtain it is copying it out of a running Plex container.
+  Native installs — Windows, Synology SPK, QNAP QPKG, TrueNAS CORE jails —
+  are not supported yet.
+- Docker on the same host as Plex.
+- Read access to the Plex config directory.
+
+Works with **hotio, linuxserver, plexinc and binhex** images, on Unraid, TrueNAS
+SCALE, OMV, bare Linux or Docker Desktop. Published for `amd64`, `arm64` and
+`armv7`.
+
+---
+
+## Install
+
+### 1. Extract Plex's SQLite
+
+One command, once. pledebe needs the whole directory, not just the binary —
+`Plex SQLite` will not run without its siblings.
+
+```bash
+docker cp plex:/usr/lib/plexmediaserver ./plexbin
+```
+
+**hotio images keep it elsewhere:**
+
+```bash
+docker cp plex:/app/bin/usr/lib/plexmediaserver ./plexbin
+```
+
+Not sure which you have? This finds it:
+
+```bash
+docker exec plex sh -c "find / -xdev -type f -name 'Plex SQLite' 2>/dev/null"
+```
+
+### 2. Run it
+
+```bash
+cp .env.example .env   # edit the paths for your setup
+docker compose up -d
+```
+
+Then open `http://your-host:8080`.
+
+Or without compose:
+
+```bash
+docker run -d --name pledebe -p 8080:8080 -e PUID=99 -e PGID=100 -v "/path/to/plex/config:/plexconfig:ro" -v ./plexbin:/plexbin:ro -v ./data:/data ghcr.io/simonbrooker/pledebe:latest
+```
+
+`PUID=99 PGID=100` is the Unraid convention (`nobody:users`). Most other systems
+want `1000:1000`, which is the default.
+
+### Where is my Plex config directory?
+
+The one containing `Plug-in Support`. pledebe searches for the database rather
+than assuming a layout, so pointing it at a parent directory also works.
+
+| Setup | Path |
+|---|---|
+| hotio | `/mnt/user/appdata/plex` |
+| linuxserver, plexinc | `/mnt/user/appdata/plex/Library/Application Support/Plex Media Server` |
+| binhex | `/mnt/user/appdata/binhex-plex/Plex Media Server` |
+
+---
+
+## Configuration
+
+### Volumes
+
+| Mount | Purpose | Notes |
+|---|---|---|
+| `/plexconfig` | Your Plex config directory | **Mount read-only** (`:ro`) |
+| `/plexbin` | The `plexmediaserver` directory from step 1 | Read-only |
+| `/data` | pledebe's own history database | The only writable mount |
+| `/plexbackups` | *Optional.* Where Plex writes database backups | Read-only. See below |
+
+### Environment variables
+
+| Variable | Default | What it does |
+|---|---|---|
+| `PUID` / `PGID` | `1000` | Ownership for `/data`. Unraid users want `99` / `100` |
+| `TZ` | `Etc/UTC` | Affects the deep-check schedule and displayed times |
+| `SCAN_INTERVAL` | `15m` | How often the cheap checks run |
+| `DEEP_CHECK_HOUR` | `4` | Hour of day (0–23) for the daily integrity check |
+| `PLEDEBE_RETAIN` | `336h` | How long detailed samples are kept. Daily history is kept forever (~0.8 MB/year) |
+| `PLEDEBE_ADDR` | `:8080` | Listen address inside the container |
+| `PLEDEBE_USER` | *(unset)* | Enables HTTP basic auth when set with the password below |
+| `PLEDEBE_PASSWORD` | *(unset)* | See [Security](#security) |
+| `PLEX_CONFIG` | `/plexconfig` | Only change if you mount somewhere else |
+| `PLEX_SQLITE_DIR` | `/plexbin` | Only change if you mount somewhere else |
+| `PLEX_BACKUP_DIR` | *(unset)* | Set to `/plexbackups` if you mount backups |
+
+### Checking backup freshness
+
+Plex can be configured to write database backups anywhere, and it records that
+path in *its own* container namespace — which pledebe cannot see. Without this
+mount, backup status is reported as **unknown**, never as a failure.
+
+Find where Plex writes them:
+
+```bash
+docker exec plex sh -c "tr ' ' '\n' < /config/Preferences.xml | grep -i butlerdatabase"
+```
+
+Then map the matching host directory to `/plexbackups` and set
+`PLEX_BACKUP_DIR=/plexbackups`.
+
+---
+
+## Using it
+
+The page shows one verdict at the top, findings ordered by severity, then every
+measurement grouped below. It refreshes on its own and uses no JavaScript.
+
+![Findings and integrity detail](docs/images/findings.png)
+
+**Run a check on demand** with the button on the page, or from the command line:
+
+```bash
+docker exec pledebe pledebe -deep
+```
+
+**One-off report without installing anything permanent:**
+
+```bash
+docker run --rm -v "/path/to/plex/config:/plexconfig:ro" -v ./plexbin:/plexbin:ro ghcr.io/simonbrooker/pledebe:latest -once
+```
+
+---
+
+## Security
+
+pledebe exposes your Plex file paths and database details, and has a button that
+makes the server read your entire database. **Do not port-forward it.**
+
+It is designed for a private network. If it is reachable by anything you do not
+control, set `PLEDEBE_USER` and `PLEDEBE_PASSWORD`, or put it behind an
+authenticating reverse proxy. It logs a warning at startup if it is listening on
+all interfaces with no credentials.
+
+Your Plex token is never read, logged or displayed — `Preferences.xml` is parsed
+with an explicit allowlist, and crash logs are redacted before display.
+
+Full review in [docs/security.md](docs/security.md).
+
+---
+
+## How trustworthy are the results?
+
+An unusual promise for a monitoring tool: **it would rather say "unknown" than
+guess.** If pledebe cannot see your backup directory, it says so instead of
+reporting a failure.
+
+That came from experience. During development, seven alarming-looking numbers
+were investigated on a completely healthy server, and every one turned out to be
+a measurement error or a harmless quirk. The eighth was real — corrupt search
+indexes, invisible to Plex's own integrity check, fixed with DBRepair's Reindex
+and verified afterwards.
+
+Which thresholds are grounded in evidence and which are still judgement calls is
+documented honestly in [docs/thresholds.md](docs/thresholds.md).
+
+---
+
+## Documentation
+
+- [docs/thresholds.md](docs/thresholds.md) — what counts as healthy, and where each number came from
+- [docs/signals.md](docs/signals.md) — which checks were rejected during calibration, and why
+- [docs/platforms.md](docs/platforms.md) — per-platform paths and portability
+- [docs/security.md](docs/security.md) — OWASP Top 10 review
+- [docs/design-notes.md](docs/design-notes.md) — roadmap and original spike results
+
+## Credit
+
+[DBRepair](https://github.com/ChuckPa/DBRepair) by ChuckPa does the actual
+repairing, and its documentation is the reason pledebe checks full-text indexes
+at all. If pledebe finds something, DBRepair is what fixes it.
 
 ## Licence
 
