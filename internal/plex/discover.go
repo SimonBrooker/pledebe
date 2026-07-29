@@ -20,10 +20,21 @@ import (
 // look for this file and derive everything else from where we found it.
 const DatabaseName = "com.plexapp.plugins.library.db"
 
-// maxScanDepth bounds the walk. The marker sits three levels below the config
-// root in every layout seen so far; 6 leaves generous headroom without letting
-// a misconfigured mount send us through a media library.
-const maxScanDepth = 6
+// maxScanDepth bounds the walk.
+//
+// The deepest real layout is lsio/plexinc, where the database sits 5 levels
+// below the config root:
+//
+//	Library/Application Support/Plex Media Server/Plug-in Support/Databases/<db>
+//
+// But users routinely point pledebe at the appdata PARENT rather than the
+// config root — /mnt/user/appdata instead of /mnt/user/appdata/plex — which
+// adds a level, and nested share layouts can add another. A limit of 6 made
+// that fail with a confusing "no Plex database found".
+//
+// 8 covers those cases while still stopping a badly aimed mount from walking a
+// media library.
+const maxScanDepth = 8
 
 // Install describes a discovered Plex installation.
 type Install struct {
@@ -71,7 +82,12 @@ func Discover(roots ...string) (*Install, error) {
 			return newInstall(dbPath)
 		}
 	}
-	return nil, fmt.Errorf("%w under %s", ErrNotFound, strings.Join(roots, ", "))
+	// Name the marker and the depth limit: the two things a user needs to work
+	// out why their mount did not resolve.
+	return nil, fmt.Errorf(
+		"%w: no %s within %d directory levels of %s — check the mount points at "+
+			"the Plex config directory (the one containing \"Plug-in Support\")",
+		ErrNotFound, DatabaseName, maxScanDepth, strings.Join(roots, ", "))
 }
 
 // scan walks root looking for the database marker, bounded by maxScanDepth.

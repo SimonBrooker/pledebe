@@ -1,5 +1,56 @@
 # Platform support
 
+## Portability audit (2026-07-28)
+
+Every path in the codebase is one of three things, and none is image-specific:
+
+| Kind | Examples | Portable? |
+|---|---|---|
+| Container-internal defaults you override | `/plexconfig`, `/plexbin`, `/data` | Yes — they are just mount points |
+| PMS's own layout, relative to the discovered config root | `Logs`, `Crash Reports`, `Preferences.xml`, `Plug-in Support/Databases` | Yes — this is Plex's structure, identical across images |
+| Hints with a scan fallback | the three known `plexmediaserver` install dirs | Yes — a scan runs when none match |
+
+The database itself is never located by joining known path fragments; pledebe
+scans for `com.plexapp.plugins.library.db` and derives the config root from
+where it lands. That is what makes hotio's flat `/config` and lsio's deeply
+nested layout work from the same code.
+
+### What works
+
+| | Status |
+|---|---|
+| hotio | **Verified** on a live server |
+| lsio, plexinc, binhex | By construction — layouts differ only in nesting, which the scan handles |
+| Unraid, TrueNAS SCALE, OMV, bare Linux, Docker Desktop | Host OS is irrelevant; pledebe only sees the mounts you give it |
+| amd64, arm64, armv7 | All built and published |
+
+### The real limitation: non-Docker Plex
+
+pledebe needs Plex's own SQLite build, and today the only way to get it is
+copying it out of a running PMS **container**. So Plex installed natively —
+Windows, Synology SPK, QNAP QPKG, TrueNAS CORE jail — **cannot run pledebe yet**,
+because there is no container to copy from.
+
+The fix is the download-from-Plex-packages acquisition path described below. It
+is designed and not built. Until it exists, "runs anywhere Docker runs" is true
+only if *Plex* is also in Docker.
+
+### Second limitation: the manual extraction step
+
+Even on Docker, the operator runs one `docker cp` by hand. It works everywhere
+but it is the biggest barrier to anyone else adopting this.
+
+### Fixed during this audit
+
+**Discovery failed when the appdata parent was mounted.** Pointing
+`PLEX_CONFIG` at `/mnt/user/appdata` rather than `/mnt/user/appdata/plex` put
+the database 6 levels down, exactly at the old depth limit, and it was silently
+skipped. lsio and plexinc users have the deepest layout and were most exposed.
+Depth raised to 8, with a test for each parent-mounted case, and the error now
+names the marker file and the depth limit instead of saying "not found".
+
+
+
 pledebe monitors a Plex database. It does not need to *be* Plex, and it does not
 need Plex to be in a container — but what it can *do* about a problem depends on
 whether it can reach the process manager.

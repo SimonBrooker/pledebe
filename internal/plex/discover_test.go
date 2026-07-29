@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -108,5 +109,46 @@ func TestDiscoverSkipsBadRoots(t *testing.T) {
 	}
 	if in.Database == "" {
 		t.Error("expected the valid root to be used")
+	}
+}
+
+// Users routinely mount the appdata PARENT rather than the Plex config root.
+// With the deepest real layout (lsio/plexinc) that puts the database 6 levels
+// down, which a depth limit of 6 silently failed to find.
+func TestDiscoverParentMountedAppdata(t *testing.T) {
+	cases := map[string]string{
+		"appdata parent, nested layout": "plex/Library/Application Support/Plex Media Server/Plug-in Support/Databases/" + DatabaseName,
+		"appdata parent, flat layout":   "plex/Plug-in Support/Databases/" + DatabaseName,
+		"two levels above, flat":        "appdata/plex/Plug-in Support/Databases/" + DatabaseName,
+	}
+
+	for name, layout := range cases {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			writeTree(t, root, layout)
+
+			in, err := Discover(root)
+			if err != nil {
+				t.Fatalf("Discover: %v", err)
+			}
+			if in.Database == "" {
+				t.Error("no database path resolved")
+			}
+		})
+	}
+}
+
+// The error has to tell a user what to fix. "not found" alone sends them
+// hunting through logs.
+func TestNotFoundErrorIsActionable(t *testing.T) {
+	_, err := Discover(t.TempDir())
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	msg := err.Error()
+	for _, want := range []string{DatabaseName, "Plug-in Support", "levels"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("error message lacks %q: %s", want, msg)
+		}
 	}
 }
