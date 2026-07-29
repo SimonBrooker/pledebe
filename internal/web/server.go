@@ -270,12 +270,29 @@ func ago(t time.Time) string {
 // butlerWindowText names the server's actual maintenance hours, read from
 // Preferences.xml at collection time. Falling back to PMS defaults would tell a
 // reader who changed the window something untrue.
+// It returns an empty string when there is no window to describe, so the
+// template can drop the sentence rather than assert something untrue.
 func butlerWindowText(m *plex.Metrics) string {
-	start, end := 2, 8
-	if m != nil && m.SlowQueries != nil && m.SlowQueries.ButlerEnd != m.SlowQueries.ButlerStart {
-		start, end = m.SlowQueries.ButlerStart, m.SlowQueries.ButlerEnd
+	if m == nil || m.SlowQueries == nil {
+		return ""
 	}
-	return fmt.Sprintf("%02d:00–%02d:00", start, end)
+	start, end := m.SlowQueries.ButlerStart, m.SlowQueries.ButlerEnd
+
+	// Equal hours mean the window is empty — the counting logic already treats
+	// it that way, so claiming a window here would contradict the figures.
+	if start == end {
+		return ""
+	}
+
+	window := fmt.Sprintf("%02d:00–%02d:00", start, end)
+
+	// We could not read Preferences.xml, so these are Plex's defaults rather
+	// than this server's settings. Say which, instead of presenting a guess as
+	// a fact — the same rule the findings follow.
+	if m.PreferencesNote != "" {
+		return window + " (assumed — pledebe cannot read your Plex settings)"
+	}
+	return window
 }
 
 // releaseURL links the displayed version to its GitHub release.

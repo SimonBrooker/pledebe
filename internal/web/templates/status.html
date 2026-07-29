@@ -407,9 +407,9 @@
       <p class="runbox-note" style="margin-top:.7rem">
         Plex decides what counts as slow, not pledebe. These are not graded: there is
         no baseline yet for what is normal on a library this size, and a threshold
-        invented without one would be a guess. Watch the trend rather than the number —
-        and note that warnings during the {{$.ButlerWindow}} maintenance window are
-        expected, since Plex is doing scheduled work then.
+        invented without one would be a guess. Watch the trend rather than the number.
+        {{if $.ButlerWindow}}Warnings during the {{$.ButlerWindow}} maintenance window
+        are expected, since Plex is doing scheduled work then.{{end}}
       </p>
     </section>
     {{end}}

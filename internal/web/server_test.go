@@ -383,3 +383,51 @@ func TestSameOriginStillRefusesGenuineCrossSite(t *testing.T) {
 		t.Error("accepted a genuine cross-site request")
 	}
 }
+
+// The maintenance window shown next to slow queries comes from the server's own
+// Plex settings. It must never present Plex's defaults as if they were read.
+func TestButlerWindowText(t *testing.T) {
+	cases := []struct {
+		name string
+		m    *plex.Metrics
+		want string
+	}{
+		{
+			name: "read from the server's settings",
+			m: &plex.Metrics{SlowQueries: &plex.SlowQueries{
+				ButlerStart: 3, ButlerEnd: 9,
+			}},
+			want: "03:00–09:00",
+		},
+		{
+			name: "unreadable preferences are marked as assumed",
+			m: &plex.Metrics{
+				PreferencesNote: "cannot read Preferences.xml: owned by uid 1000",
+				SlowQueries:     &plex.SlowQueries{ButlerStart: 2, ButlerEnd: 8},
+			},
+			want: "02:00–08:00 (assumed — pledebe cannot read your Plex settings)",
+		},
+		{
+			// Equal hours mean no window. Claiming one would contradict the
+			// "during maintenance" count, which is zero in that case.
+			name: "no window at all",
+			m: &plex.Metrics{SlowQueries: &plex.SlowQueries{
+				ButlerStart: 4, ButlerEnd: 4,
+			}},
+			want: "",
+		},
+		{
+			name: "no slow queries collected",
+			m:    &plex.Metrics{},
+			want: "",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := butlerWindowText(tc.m); got != tc.want {
+				t.Errorf("butlerWindowText = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
