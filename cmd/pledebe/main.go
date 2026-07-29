@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"strconv"
 	"syscall"
 	"time"
@@ -206,7 +207,12 @@ func serve(install *plex.Install, db *plex.SQLite, dataDir, addr string,
 		_ = httpSrv.Shutdown(shutdownCtx)
 	}()
 
-	log.Printf("pledebe %s watching %s", version, install.Database)
+	// Print the build identity first. A stale image was mistaken for a bug
+	// three times during development, each time diagnosed by noticing that an
+	// error message had the OLD wording. Saying which build is running turns
+	// that into a glance.
+	log.Printf("pledebe %s (built %s)", version, buildInfo())
+	log.Printf("watching %s", install.Database)
 	log.Printf("status page on %s, collecting every %s", addr, interval)
 	web.WarnIfExposed(addr, auth)
 
@@ -471,4 +477,19 @@ func okOrFailed(ok bool) string {
 		return "ok"
 	}
 	return "FAILED"
+}
+
+// buildInfo reports when the binary was built, read from the embedded VCS
+// stamp Go records automatically.
+func buildInfo() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return "unknown"
+	}
+	for _, s := range info.Settings {
+		if s.Key == "vcs.time" {
+			return s.Value
+		}
+	}
+	return "unknown"
 }

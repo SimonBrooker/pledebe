@@ -281,3 +281,68 @@ func TestMissingDocsNeverNegative(t *testing.T) {
 		t.Errorf("MissingDocs = %d, want 0", got)
 	}
 }
+
+// Regression for a false alarm that survived the first fix and reappeared in
+// testing: PMS writes backups to a path pledebe cannot see, stale leftovers sit
+// beside the database, and their age was reported as "92 days stale" on a
+// server backing up daily.
+func TestStaleLeftoversAreNotEvidenceOfStaleBackups(t *testing.T) {
+	m := &plex.Metrics{
+		BackupCount:            4,
+		BackupDirVisible:       true,
+		BackupDirAuthoritative: false, // we fell back beside the database
+		BackupDirSearched:      "/plexconfig/Plug-in Support/Databases",
+		BackupDirExpected:      "/backup/Databases",
+		NewestBackupAt:         time.Now().Add(-92 * 24 * time.Hour),
+		NewestBackup:           "com.plexapp.plugins.library.db-2026-04-28",
+	}
+
+	f, ok := find(Evaluate(m, nil), "Backup freshness unknown")
+	if !ok {
+		t.Fatal("expected Unknown; leftovers next to the database prove nothing")
+	}
+	if f.Level != LevelUnknown {
+		t.Errorf("Level = %q, want %q", f.Level, LevelUnknown)
+	}
+	if !strings.Contains(f.Detail, "PLEX_BACKUP_DIR") {
+		t.Error("detail must tell the user how to make it measurable")
+	}
+
+	// And it must NOT also raise the staleness warning.
+	if _, warned := find(Evaluate(m, nil), "Database backups are stale"); warned {
+		t.Error("reported staleness from a directory PMS does not write to")
+	}
+}
+
+// The authoritative directory still warns when genuinely stale.
+func TestAuthoritativeDirStillWarnsWhenStale(t *testing.T) {
+	m := &plex.Metrics{
+		BackupCount:            2,
+		BackupDirVisible:       true,
+		BackupDirAuthoritative: true,
+		BackupDirSearched:      "/plexbackups",
+		BackupDirExpected:      "/backup/Databases",
+		NewestBackupAt:         time.Now().Add(-92 * 24 * time.Hour),
+		NewestBackup:           "com.plexapp.plugins.library.db-2026-04-28",
+	}
+
+	f, ok := find(Evaluate(m, nil), "Database backups are stale")
+	if !ok || f.Level != LevelWarn {
+		t.Errorf("got %+v (ok=%v), want a staleness warning", f, ok)
+	}
+}
+
+// With no configured path at all, the directory beside the database IS the
+// right place to look, and old backups there are genuinely stale.
+func TestNoConfiguredPathMeansBesideTheDatabaseIsAuthoritative(t *testing.T) {
+	m := &plex.Metrics{
+		BackupCount:            2,
+		BackupDirVisible:       true,
+		BackupDirAuthoritative: true, // collectBackups sets this when unconfigured
+		BackupDirSearched:      "/plexconfig/Plug-in Support/Databases",
+		NewestBackupAt:         time.Now().Add(-92 * 24 * time.Hour),
+	}
+	if _, ok := find(Evaluate(m, nil), "Database backups are stale"); !ok {
+		t.Error("expected a staleness warning when the fallback is authoritative")
+	}
+}

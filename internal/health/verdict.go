@@ -202,6 +202,19 @@ func backupFinding(m *plex.Metrics) Finding {
 		return Finding{LevelUnknown, "Backup freshness unknown", detail}
 	}
 
+	// Backups were found, but not where PMS actually writes them. Dated files
+	// linger beside the database long after ButlerDatabaseBackupPath is pointed
+	// elsewhere, so their age says nothing about whether backups are running.
+	// Reporting it as staleness produced a confident "92 days old" on a server
+	// backing up daily.
+	if !m.BackupDirAuthoritative && m.BackupDirExpected != "" {
+		return Finding{LevelUnknown, "Backup freshness unknown",
+			fmt.Sprintf("PMS writes backups to %s, which is not mounted here. The %d "+
+				"dated files in %s may be leftovers from an earlier setting, so their "+
+				"age proves nothing — mount the real location and set PLEX_BACKUP_DIR.",
+				m.BackupDirExpected, m.BackupCount, m.BackupDirSearched)}
+	}
+
 	if m.BackupCount == 0 {
 		return Finding{LevelWarn, "No database backups found",
 			fmt.Sprintf("nothing matching a dated backup in %s", m.BackupDirSearched)}

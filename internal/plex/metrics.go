@@ -50,6 +50,15 @@ type Metrics struct {
 	BackupDirVisible  bool   `json:"backup_dir_visible"`
 	BackupDirExpected string `json:"backup_dir_expected,omitempty"`
 
+	// BackupDirAuthoritative reports whether the directory we scanned is the
+	// one PMS actually writes to.
+	//
+	// When false, anything found there is NOT evidence about backup freshness.
+	// Dated files linger beside the database long after
+	// ButlerDatabaseBackupPath was pointed elsewhere, and reporting their age
+	// produced a confident "92 days stale" on a server backing up daily.
+	BackupDirAuthoritative bool `json:"backup_dir_authoritative"`
+
 	// CrashReportCount counts crash FILES, not directories.
 	//
 	// "Crash Reports" contains one directory per PMS version ever installed —
@@ -158,12 +167,25 @@ func (in *Install) collectBackups(m *Metrics, prefs *Preferences) {
 		m.BackupDirExpected = prefs.DatabaseBackupPath
 	}
 
+	// A directory is authoritative if the operator pointed us at it, or if PMS
+	// says it writes there. The fallback beside the database is not, unless no
+	// other path is configured — it may hold leftovers from an earlier setting.
+	authoritative := map[string]bool{}
+	if in.BackupDirOverride != "" {
+		authoritative[in.BackupDirOverride] = true
+	}
+	configured := prefs != nil && prefs.DatabaseBackupPath != ""
+	if configured {
+		authoritative[prefs.DatabaseBackupPath] = true
+	}
+
 	for _, dir := range in.BackupDirs(prefs) {
 		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
 			continue
 		}
 		m.BackupDirVisible = true
 		m.BackupDirSearched = dir
+		m.BackupDirAuthoritative = authoritative[dir] || !configured
 		in.scanBackupDir(dir, m)
 		if m.BackupCount > 0 {
 			return
