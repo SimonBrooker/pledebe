@@ -429,3 +429,32 @@ func TestConfiguredBackupDirHasNoMountHint(t *testing.T) {
 		t.Error("hint shown despite the directory being configured")
 	}
 }
+
+// An unreadable Preferences.xml has consequences in three separate places on
+// the page. It gets one finding naming the shared cause, so a reader does not
+// have to infer it from scattered "unknown" results.
+func TestUnreadablePreferencesGetsItsOwnFinding(t *testing.T) {
+	m := &plex.Metrics{
+		PreferencesNote: "cannot read /plexconfig/Preferences.xml: it is owned by " +
+			"uid 1000 and pledebe runs as uid 99 — set PUID=1000",
+	}
+
+	f, ok := find(Evaluate(m, nil), "Cannot read Plex's settings")
+	if !ok {
+		t.Fatal("expected a finding naming the cause")
+	}
+	if f.Level != LevelUnknown {
+		t.Errorf("Level = %q, want %q — it is a gap in our knowledge, not a fault", f.Level, LevelUnknown)
+	}
+	// The fix has to travel with the finding, not sit in a container log.
+	if !strings.Contains(f.Detail, "PUID=1000") {
+		t.Errorf("detail must carry the fix; got %q", f.Detail)
+	}
+}
+
+func TestReadablePreferencesReportsOK(t *testing.T) {
+	f, ok := find(Evaluate(&plex.Metrics{}, nil), "Plex settings readable")
+	if !ok || f.Level != LevelOK {
+		t.Errorf("got %+v (ok=%v), want an OK finding", f, ok)
+	}
+}
