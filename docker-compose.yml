@@ -9,7 +9,8 @@
 
 services:
   pledebe:
-    image: ghcr.io/simonbrooker/pledebe:edge
+    # Pin to a version (e.g. :1.0.0) if you would rather upgrade deliberately.
+    image: ghcr.io/simonbrooker/pledebe:latest
     container_name: pledebe
     ports:
       - "8080:8080"
@@ -18,10 +19,12 @@ services:
       # nobody:users, so set PUID=99 and PGID=100 in .env.
       PUID: ${PUID:-1000}
       PGID: ${PGID:-1000}
-      SCAN_INTERVAL: 15m
+      # All optional, with their defaults. Set any of them in .env to override.
+      SCAN_INTERVAL: ${SCAN_INTERVAL:-15m}
+      DEEP_CHECK_HOUR: ${DEEP_CHECK_HOUR:-4}
       # Fine-grained samples. Daily history is rolled up and kept forever
       # (~0.8 MB per year), so this only bounds the 15-minute detail.
-      PLEDEBE_RETAIN: 336h # 14 days
+      PLEDEBE_RETAIN: ${PLEDEBE_RETAIN:-336h} # 14 days
       TZ: ${TZ:-Etc/UTC}
       # Set only if PLEX_BACKUP is mounted below.
       PLEX_BACKUP_DIR: ${PLEX_BACKUP_DIR:-}

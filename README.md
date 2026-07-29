@@ -84,14 +84,26 @@ docker compose up -d
 
 Then open `http://your-host:8080`.
 
-Or without compose:
+`PUID=99 PGID=100` is the Unraid convention (`nobody:users`). Most other systems
+want `1000:1000`, which is the default.
+
+### Without compose
+
+The minimum that works:
 
 ```bash
 docker run -d --name pledebe -p 8080:8080 -e PUID=99 -e PGID=100 -v "/path/to/plex/config:/plexconfig:ro" -v ./plexbin:/plexbin:ro -v ./data:/data ghcr.io/simonbrooker/pledebe:latest
 ```
 
-`PUID=99 PGID=100` is the Unraid convention (`nobody:users`). Most other systems
-want `1000:1000`, which is the default.
+The same thing with everything worth setting — backup checking, a password, and
+the schedule. Drop any line that does not apply to you:
+
+```bash
+docker run -d --name pledebe --restart unless-stopped -p 8080:8080 -e PUID=99 -e PGID=100 -e TZ=Europe/London -e PLEDEBE_USER=admin -e PLEDEBE_PASSWORD=change-me -e PLEX_BACKUP_DIR=/plexbackups -e SCAN_INTERVAL=15m -e DEEP_CHECK_HOUR=4 -e PLEDEBE_RETAIN=336h -v "/path/to/plex/config:/plexconfig:ro" -v ./plexbin:/plexbin:ro -v "/path/to/plex/backups:/plexbackups:ro" -v ./data:/data ghcr.io/simonbrooker/pledebe:latest
+```
+
+Every variable is explained in [Configuration](#configuration) below, and
+`.env.example` lists them all with their defaults.
 
 ### Where is my Plex config directory?
 
@@ -126,7 +138,7 @@ than assuming a layout, so pointing it at a parent directory also works.
 | `SCAN_INTERVAL` | `15m` | How often the cheap checks run |
 | `DEEP_CHECK_HOUR` | `4` | Hour of day (0–23) for the daily integrity check |
 | `PLEDEBE_RETAIN` | `336h` | How long detailed samples are kept. Daily history is kept forever (~0.8 MB/year) |
-| `PLEDEBE_ADDR` | `:8080` | Listen address inside the container |
+| `PLEDEBE_ADDR` | `:8080` | Listen address **inside** the container. To serve on a different host port, change the left side of the ports mapping instead — `"8087:8080"` |
 | `PLEDEBE_USER` | *(unset)* | Enables HTTP basic auth when set with the password below |
 | `PLEDEBE_PASSWORD` | *(unset)* | See [Security](#security) |
 | `PLEX_CONFIG` | `/plexconfig` | Only change if you mount somewhere else |
