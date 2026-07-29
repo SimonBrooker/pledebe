@@ -57,6 +57,12 @@ type Metrics struct {
 	// maintenance, so several findings must report Unknown rather than defaults.
 	PreferencesNote string `json:"preferences_note,omitempty"`
 
+	// BackupMountUnused names a directory that looks like a mounted backup
+	// location the operator forgot to set PLEX_BACKUP_DIR to. The mount and the
+	// variable are configured in different places, so having one without the
+	// other is a predictable mistake worth naming precisely.
+	BackupMountUnused string `json:"backup_mount_unused,omitempty"`
+
 	// BackupDirAuthoritative reports whether the directory we scanned is the
 	// one PMS actually writes to.
 	//
@@ -184,6 +190,8 @@ func (in *Install) collectBackups(m *Metrics, prefs *Preferences) {
 	if in.BackupDirOverride != "" {
 		authoritative[in.BackupDirOverride] = true
 	}
+	m.BackupMountUnused = findUnusedBackupMount(in.BackupDirOverride)
+
 	configured := prefs != nil && prefs.DatabaseBackupPath != ""
 	if configured {
 		authoritative[prefs.DatabaseBackupPath] = true
@@ -335,4 +343,53 @@ func countEntries(dir string) int {
 		return 0
 	}
 	return len(entries)
+}
+
+// conventionalBackupMounts are the paths the documentation tells operators to
+// mount backups at. Probing them lets pledebe distinguish "you have not set
+// this up" from "you set it up but forgot the variable" — a predictable
+// mistake, since the mount and the variable are configured in different places.
+var conventionalBackupMounts = []string{"/plexbackups", "/plexbackup"}
+
+// findUnusedBackupMount reports a directory that looks like a backup mount the
+// operator forgot to point PLEX_BACKUP_DIR at.
+//
+// It only fires when the directory actually contains dated backups: an empty
+// mount is far more likely to be an unrelated volume than a misconfiguration,
+// and suggesting otherwise would send someone chasing a setting they do not
+// need.
+func findUnusedBackupMount(override string) string {
+	if override != "" {
+		return "" // already configured; nothing to suggest
+	}
+	for _, dir := range conventionalBackupMounts {
+		info, err := os.Stat(dir)
+		if err != nil || !info.IsDir() {
+			continue
+		}
+		if countDatedBackups(dir) > 0 {
+			return dir
+		}
+	}
+	return ""
+}
+
+// countDatedBackups counts PMS-style dated backups without recording them, so a
+// probe cannot be mistaken for a measurement.
+func countDatedBackups(dir string) int {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0
+	}
+	prefix := DatabaseName + "-"
+	var n int
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasPrefix(e.Name(), prefix) {
+			continue
+		}
+		if _, err := time.Parse("2006-01-02", strings.TrimPrefix(e.Name(), prefix)); err == nil {
+			n++
+		}
+	}
+	return n
 }

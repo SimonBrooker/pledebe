@@ -191,6 +191,17 @@ func roundDuration(d time.Duration) string {
 }
 
 func backupFinding(m *plex.Metrics) Finding {
+	// The mount is there but the variable is not. Say exactly that, rather than
+	// the generic "mount the real location and set PLEX_BACKUP_DIR" — half the
+	// work is already done, and telling someone to do it again wastes their
+	// time working out which half.
+	if m.BackupMountUnused != "" {
+		return Finding{LevelUnknown, "Backup directory mounted but not configured",
+			fmt.Sprintf("%s is mounted and contains backups, but PLEX_BACKUP_DIR is "+
+				"not set, so pledebe is not reading it. Set PLEX_BACKUP_DIR=%s.",
+				m.BackupMountUnused, m.BackupMountUnused)}
+	}
+
 	// PMS records its backup path in its own mount namespace. If we cannot see
 	// it we know nothing -- reporting "no backups" here was a real false alarm
 	// during development, on a server backing up perfectly.

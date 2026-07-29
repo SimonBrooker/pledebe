@@ -143,3 +143,30 @@ func TestLoadPreferencesMissingFile(t *testing.T) {
 		t.Error("expected zero Preferences")
 	}
 }
+
+// An empty mount is far more likely to be an unrelated volume than a
+// misconfiguration, so the hint must not fire on one.
+func TestFindUnusedBackupMountRequiresActualBackups(t *testing.T) {
+	// Already configured: nothing to suggest, whatever is mounted.
+	if got := findUnusedBackupMount("/plexbackups"); got != "" {
+		t.Errorf("got %q, want no suggestion when PLEX_BACKUP_DIR is set", got)
+	}
+}
+
+func TestCountDatedBackups(t *testing.T) {
+	dir := t.TempDir()
+	writeTree(t, dir,
+		DatabaseName+"-2026-07-27",
+		DatabaseName+"-2026-07-24",
+		DatabaseName,                                      // the live database, not a backup
+		"com.plexapp.plugins.library.blobs.db-2026-07-27", // a different database
+		"notes.txt",
+	)
+
+	if got := countDatedBackups(dir); got != 2 {
+		t.Errorf("countDatedBackups = %d, want 2", got)
+	}
+	if got := countDatedBackups(filepath.Join(dir, "nope")); got != 0 {
+		t.Errorf("missing directory = %d, want 0", got)
+	}
+}

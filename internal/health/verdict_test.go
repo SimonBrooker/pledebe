@@ -387,3 +387,45 @@ func TestReadablePreferencesStillWarnsOnStale(t *testing.T) {
 		t.Error("expected a staleness warning when preferences were readable")
 	}
 }
+
+// The mount and the variable are configured in different places, so having one
+// without the other is a predictable mistake. Naming it precisely turns a
+// "why is this still unknown?" moment into a copy-pasteable fix.
+func TestMountedButUnconfiguredBackupDir(t *testing.T) {
+	m := &plex.Metrics{
+		BackupMountUnused: "/plexbackups",
+		BackupDirVisible:  true,
+		BackupCount:       4,
+		BackupDirExpected: "/backup/Databases",
+		NewestBackupAt:    time.Now().Add(-92 * 24 * time.Hour),
+	}
+
+	f, ok := find(Evaluate(m, nil), "Backup directory mounted but not configured")
+	if !ok {
+		t.Fatal("expected the specific mounted-but-unconfigured finding")
+	}
+	if f.Level != LevelUnknown {
+		t.Errorf("Level = %q, want %q", f.Level, LevelUnknown)
+	}
+	if !strings.Contains(f.Detail, "PLEX_BACKUP_DIR=/plexbackups") {
+		t.Errorf("detail must give the exact setting to add; got %q", f.Detail)
+	}
+	// It must take precedence over the vaguer messages.
+	if _, ok := find(Evaluate(m, nil), "Backup freshness unknown"); ok {
+		t.Error("the generic message should not also appear")
+	}
+}
+
+// Once configured, the specific message goes away.
+func TestConfiguredBackupDirHasNoMountHint(t *testing.T) {
+	m := &plex.Metrics{
+		BackupCount:            4,
+		BackupDirVisible:       true,
+		BackupDirAuthoritative: true,
+		BackupDirSearched:      "/plexbackups",
+		NewestBackupAt:         time.Now().Add(-24 * time.Hour),
+	}
+	if _, ok := find(Evaluate(m, nil), "Backup directory mounted but not configured"); ok {
+		t.Error("hint shown despite the directory being configured")
+	}
+}
