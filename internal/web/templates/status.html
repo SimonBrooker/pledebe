@@ -84,6 +84,26 @@
   .verdict h2 { margin: 0; font-size: 1.15rem; letter-spacing: -.01em; text-wrap: balance; }
   .verdict p { margin: .15rem 0 0; color: var(--ink-2); font-size: .875rem; }
 
+  /* ---- action banner: only when DBRepair would actually help ---- */
+  .action {
+    margin-bottom: 2rem; padding: 1.1rem 1.3rem; border-radius: var(--r);
+    border: 1px solid var(--warn); background: var(--warn-bg);
+    border-left-width: 4px;
+  }
+  .action.fault { border-color: var(--fault); background: var(--fault-bg); }
+  .action-head { display: flex; align-items: center; gap: .7rem; flex-wrap: wrap; }
+  .action-head h2 { margin: 0; font-size: 1.05rem; letter-spacing: -.01em; }
+  .action-why { margin: .55rem 0 0; font-size: .875rem; color: var(--ink-2); max-width: 72ch; }
+  .action-steps { margin: .7rem 0 0; padding-left: 1.2rem; font-size: .875rem; color: var(--ink-2); }
+  .action-steps li { margin: .2rem 0; }
+  .action-caution, .action-blocked {
+    margin: .7rem 0 0; font-size: .85rem; color: var(--ink-2); max-width: 72ch;
+  }
+  .action-blocked { color: var(--fault); }
+  .action-link { margin: .8rem 0 0; font-size: .8rem; color: var(--ink-3); }
+  .action a { color: inherit; text-decoration: underline; }
+  .action a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
   /* ---- chips ---- */
   .chip {
     display: inline-flex; align-items: center; flex: none;
@@ -215,6 +235,31 @@
       <p>{{.Summary.Detail}}</p>
     </div>
   </div>
+
+  {{with .Recommend}}
+  <section class="action {{.Level}}">
+    <div class="action-head">
+      <span class="chip {{.Level}}">Action needed</span>
+      <h2>DBRepair: {{.Action}}</h2>
+    </div>
+    <p class="action-why">{{.Why}}</p>
+
+    {{if .Blocked}}
+    <p class="action-blocked"><strong>{{.Blocked}}</strong></p>
+    {{else}}
+    <ol class="action-steps">
+      {{range .Steps}}<li>{{.}}</li>{{end}}
+    </ol>
+    {{if .Caution}}<p class="action-caution">{{.Caution}}</p>{{end}}
+    {{end}}
+
+    <p class="action-link">
+      pledebe does not repair anything itself. Get DBRepair from
+      <a href="https://github.com/ChuckPa/DBRepair" rel="noreferrer noopener">github.com/ChuckPa/DBRepair</a>
+      and follow its own installation instructions.
+    </p>
+  </section>
+  {{end}}
 
   <h2 class="grp">Findings</h2>
   <div class="findings">

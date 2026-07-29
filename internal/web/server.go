@@ -48,10 +48,11 @@ type pageData struct {
 	SQLitePath string
 	Version    string
 
-	Metrics  *plex.Metrics
-	Deep     *plex.DeepCheck
-	Summary  health.Summary
-	Findings []health.Finding
+	Metrics   *plex.Metrics
+	Deep      *plex.DeepCheck
+	Summary   health.Summary
+	Findings  []health.Finding
+	Recommend *health.Recommendation
 
 	RecentDays  []store.DailySample
 	OlderDays   []store.DailySample
@@ -138,6 +139,7 @@ func (s *Server) status(w http.ResponseWriter, _ *http.Request) {
 		Deep:         deep,
 		Summary:      health.Summarise(findings),
 		Findings:     findings,
+		Recommend:    health.Recommend(latest, deep),
 		DayCount:     dayCount,
 		SampleCount:  sampleCount,
 		FreePercent:  latest.FreeRatio() * 100,

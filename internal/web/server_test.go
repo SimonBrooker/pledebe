@@ -279,3 +279,32 @@ func TestDeepCheckUnavailableWithoutRunner(t *testing.T) {
 		t.Errorf("status = %d, want 501", rec.Code)
 	}
 }
+
+// The action banner must appear only when DBRepair would actually help, and
+// must carry the steps rather than just naming a problem.
+func TestActionBannerShownForCorruptFTS(t *testing.T) {
+	dc := &plex.DeepCheck{
+		StartedAt: time.Now(), IntegrityOK: true,
+		FTS: []plex.FTSTable{{Name: "fts4_metadata_titles", IntegrityOK: false}},
+	}
+	body := render(t, newTestServer(t, fullMetrics(), dc))
+
+	for _, want := range []string{"Action needed", "DBRepair: Reindex", "Stop Plex Media Server"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("banner missing %q", want)
+		}
+	}
+	if !strings.Contains(body, "github.com/ChuckPa/DBRepair") {
+		t.Error("banner must link to DBRepair; pledebe does not repair anything itself")
+	}
+}
+
+func TestNoActionBannerWhenHealthy(t *testing.T) {
+	dc := &plex.DeepCheck{
+		StartedAt: time.Now(), IntegrityOK: true,
+		FTS: []plex.FTSTable{{Name: "fts4_metadata_titles", IntegrityOK: true}},
+	}
+	if strings.Contains(render(t, newTestServer(t, fullMetrics(), dc)), "Action needed") {
+		t.Error("action banner shown on a healthy server")
+	}
+}
