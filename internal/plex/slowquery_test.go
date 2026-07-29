@@ -86,15 +86,9 @@ func TestSinceExcludesAlreadyCountedLines(t *testing.T) {
 	}
 }
 
-func TestNoSlowQueriesReturnsNil(t *testing.T) {
-	dir := t.TempDir()
-	writeLog(t, dir, "Plex Media Server.log", "Jul 29, 2026 03:08:00.000 INFO - all quiet\n")
-
-	in := &Install{LogDir: dir}
-	if sq := in.collectSlowQueries(time.Time{}, 2, 8); sq != nil {
-		t.Errorf("got %+v, want nil when nothing matched", sq)
-	}
-}
+// Superseded by TestQuietIntervalReturnsZeroNotNil: a readable log with nothing
+// matching now returns a zero-count result, so the page can say "none" rather
+// than losing the section. nil is reserved for logs that cannot be read.
 
 func TestNoLogDirIsNotAnError(t *testing.T) {
 	in := &Install{LogDir: ""}
@@ -134,5 +128,36 @@ func TestPercentiles(t *testing.T) {
 	}
 	if sq.P95 != 1000 {
 		t.Errorf("P95 = %v, want 1000", sq.P95)
+	}
+}
+
+// Nothing matching must still return a result, so the page can say "none"
+// rather than losing the section entirely.
+func TestQuietIntervalReturnsZeroNotNil(t *testing.T) {
+	dir := t.TempDir()
+	writeLog(t, dir, "Plex Media Server.log",
+		"Jul 29, 2026 03:08:00.000 INFO - nothing slow here\n")
+
+	in := &Install{LogDir: dir}
+	sq := in.collectSlowQueries(time.Time{}, 2, 8)
+
+	if sq == nil {
+		t.Fatal("got nil; a quiet interval is a result, not an absence of one")
+	}
+	if sq.Count != 0 {
+		t.Errorf("Count = %d, want 0", sq.Count)
+	}
+	if !sq.LogsReadable {
+		t.Error("LogsReadable = false, but the logs were read fine")
+	}
+}
+
+// nil is reserved for "the logs could not be read at all".
+func TestUnreadableLogsReturnNil(t *testing.T) {
+	if sq := (&Install{LogDir: ""}).collectSlowQueries(time.Time{}, 2, 8); sq != nil {
+		t.Error("expected nil when there is no log directory")
+	}
+	if sq := (&Install{LogDir: t.TempDir()}).collectSlowQueries(time.Time{}, 2, 8); sq != nil {
+		t.Error("expected nil when no Plex log files exist")
 	}
 }

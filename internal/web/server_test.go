@@ -431,3 +431,52 @@ func TestButlerWindowText(t *testing.T) {
 		})
 	}
 }
+
+// A quiet interval is a result, not an absence of one. Returning nil made the
+// whole panel vanish whenever nothing was slow for fifteen minutes, which reads
+// as the feature having broken rather than as good news.
+func TestSlowQuerySectionSurvivesAQuietInterval(t *testing.T) {
+	m := fullMetrics()
+	m.SlowQueries = &plex.SlowQueries{LogsReadable: true, ButlerStart: 2, ButlerEnd: 8}
+
+	body := render(t, newTestServer(t, m, nil))
+
+	if !strings.Contains(body, "Slow queries") {
+		t.Error("the section disappeared when there were none")
+	}
+	if !strings.Contains(body, "no slow queries since the last check") {
+		t.Error("a quiet interval should say so rather than showing nothing")
+	}
+}
+
+// nil means the logs could not be read, which is unmeasured -- not a report of
+// zero.
+func TestSlowQuerySectionSaysWhenLogsUnreadable(t *testing.T) {
+	m := fullMetrics()
+	m.SlowQueries = nil
+
+	body := render(t, newTestServer(t, m, nil))
+
+	if !strings.Contains(body, "cannot read Plex's logs") {
+		t.Error("unreadable logs must be reported as unmeasured, not as zero")
+	}
+	if strings.Contains(body, "no slow queries since the last check") {
+		t.Error("unreadable logs must not be reported as a quiet interval")
+	}
+}
+
+func TestSlowQuerySectionShowsFigures(t *testing.T) {
+	m := fullMetrics()
+	m.SlowQueries = &plex.SlowQueries{
+		LogsReadable: true, Count: 725, P50: 230, P95: 460, Max: 1200,
+		InButlerWindow: 700, ButlerStart: 2, ButlerEnd: 8,
+		Since: time.Now().Add(-6 * time.Hour), Until: time.Now(),
+	}
+
+	body := render(t, newTestServer(t, m, nil))
+	for _, want := range []string{"725", "230 ms", "460 ms", "700"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("figures missing %q", want)
+		}
+	}
+}

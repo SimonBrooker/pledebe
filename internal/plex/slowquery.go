@@ -60,6 +60,11 @@ type SlowQueries struct {
 	// hours. Slow queries at 3am while Butler is running are expected; the same
 	// rate at 8pm is not, and a single number would hide the difference.
 	InButlerWindow int `json:"in_butler_window"`
+
+	// LogsReadable distinguishes "nothing was slow" from "we could not look".
+	// A zero count with this true is good news; the whole struct being nil
+	// means PMS's logs were not reachable and nothing can be concluded.
+	LogsReadable bool `json:"logs_readable"`
 }
 
 // PerHour returns the rate across the observed window, or 0 if the window is
@@ -106,7 +111,7 @@ func (in *Install) collectSlowQueries(since time.Time, butlerStart, butlerEnd in
 		return nil
 	}
 
-	sq := &SlowQueries{ButlerStart: butlerStart, ButlerEnd: butlerEnd}
+	sq := &SlowQueries{ButlerStart: butlerStart, ButlerEnd: butlerEnd, LogsReadable: true}
 	var durations []float64
 
 	for _, path := range paths {
@@ -117,8 +122,12 @@ func (in *Install) collectSlowQueries(since time.Time, butlerStart, butlerEnd in
 		parseSlowQueryFile(path, since, butlerStart, butlerEnd, sq, &durations)
 	}
 
+	// A quiet interval is a RESULT, not an absence of one. Returning nil here
+	// made the whole panel vanish whenever nothing was slow for fifteen
+	// minutes, which reads as the feature having broken rather than as good
+	// news. nil is reserved for "the logs cannot be read at all".
 	if len(durations) == 0 {
-		return nil
+		return sq
 	}
 
 	sort.Float64s(durations)
