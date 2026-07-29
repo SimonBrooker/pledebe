@@ -233,8 +233,11 @@ func diskFinding(m *plex.Metrics) Finding {
 			fmt.Sprintf("%s free; a repair needs about %s", humanBytes(m.VolumeFreeBytes), humanBytes(m.DatabaseBytes*3))}
 	}
 
+	// Name the volume: this is the filesystem holding library.db, which on most
+	// setups is a cache pool or SSD, NOT the media array. A bare "643 GB
+	// available" invites the reader to check the wrong disk.
 	return Finding{LevelOK, "Free space sufficient",
-		fmt.Sprintf("%s available", humanBytes(m.VolumeFreeBytes))}
+		fmt.Sprintf("%s available on Plex metadata volume", humanBytes(m.VolumeFreeBytes))}
 }
 
 func crashFinding(m *plex.Metrics) Finding {
