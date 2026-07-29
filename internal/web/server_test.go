@@ -335,3 +335,51 @@ func TestVersionRenderedInAppBar(t *testing.T) {
 		t.Error("version does not link to releases")
 	}
 }
+
+// A same-origin click must never be refused. Browsers vary in whether they send
+// Origin on same-origin form posts, and sandboxed contexts send the literal
+// "null" -- refusing either turns a working button into an opaque error.
+func TestSameOriginAcceptsRealBrowserBehaviour(t *testing.T) {
+	cases := map[string]string{
+		"no Origin header": "",
+		"literal null":     "null",
+		"matching Origin":  "http://10.20.30.13:8087",
+		"different case":   "http://10.20.30.13:8087",
+	}
+
+	for name, origin := range cases {
+		t.Run(name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/deepcheck", nil)
+			req.Host = "10.20.30.13:8087"
+			if origin != "" {
+				req.Header.Set("Origin", origin)
+			}
+			if _, _, ok := sameOrigin(req); !ok {
+				t.Errorf("refused a legitimate request with Origin %q", origin)
+			}
+		})
+	}
+}
+
+// A reverse proxy commonly rewrites Host to the internal upstream while Origin
+// stays the address the user typed.
+func TestSameOriginTrustsForwardedHost(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/deepcheck", nil)
+	req.Host = "pledebe:8080" // what the proxy passed upstream
+	req.Header.Set("Origin", "https://plex-health.example.com")
+	req.Header.Set("X-Forwarded-Host", "plex-health.example.com")
+
+	if _, _, ok := sameOrigin(req); !ok {
+		t.Error("refused a proxied request that forwarded the original host")
+	}
+}
+
+func TestSameOriginStillRefusesGenuineCrossSite(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/deepcheck", nil)
+	req.Host = "10.20.30.13:8087"
+	req.Header.Set("Origin", "https://evil.example")
+
+	if _, _, ok := sameOrigin(req); ok {
+		t.Error("accepted a genuine cross-site request")
+	}
+}

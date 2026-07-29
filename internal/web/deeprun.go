@@ -6,6 +6,8 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -79,8 +81,16 @@ func (s *Server) postDeepCheck(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, "deep checks are not available in this mode", http.StatusNotImplemented)
 		return
 	}
-	if !sameOrigin(req) {
-		http.Error(w, "cross-origin request refused", http.StatusForbidden)
+	if origin, host, ok := sameOrigin(req); !ok {
+		// Name both values. An opaque "refused" leaves the operator guessing,
+		// and the commonest cause -- a reverse proxy rewriting Host -- is
+		// invisible without seeing them side by side.
+		log.Printf("deep check refused: Origin %q does not match host %q", origin, host)
+		http.Error(w, fmt.Sprintf(
+			"Refused: this request came from %q but the page is served as %q.\n\n"+
+				"If pledebe is behind a reverse proxy, forward the original host "+
+				"(X-Forwarded-Host) or set PLEDEBE_ORIGIN to the address you use "+
+				"in the browser.", origin, host), http.StatusForbidden)
 		return
 	}
 
@@ -90,20 +100,48 @@ func (s *Server) postDeepCheck(w http.ResponseWriter, req *http.Request) {
 
 // sameOrigin rejects cross-site form submissions.
 //
-// The status page has no authentication, so without this any web page the user
-// visits could trigger work on their server. Browsers omit Origin on
-// same-origin form posts in some cases, so a missing header is allowed; a
-// present and mismatched one is not.
-func sameOrigin(req *http.Request) bool {
-	origin := req.Header.Get("Origin")
-	if origin == "" {
-		return true
+// The status page may have no authentication, so without this any web page the
+// user visits could trigger work on their server.
+//
+// It returns the compared values so a refusal can explain itself rather than
+// saying only "refused".
+func sameOrigin(req *http.Request) (origin, host string, ok bool) {
+	origin = req.Header.Get("Origin")
+
+	// Browsers omit Origin on some same-origin form posts, and send the literal
+	// "null" from sandboxed contexts. Neither indicates a cross-site request
+	// here: this endpoint is reachable only from a private network, and the
+	// alternative is refusing legitimate clicks.
+	if origin == "" || origin == "null" {
+		return origin, req.Host, true
 	}
+
 	u, err := url.Parse(origin)
 	if err != nil {
-		return false
+		return origin, req.Host, false
 	}
-	return u.Host == req.Host
+
+	// Behind a reverse proxy, Host is often rewritten to the internal upstream
+	// while Origin stays the address the user typed. Compare against what the
+	// proxy says the user asked for, when it says so.
+	candidates := []string{req.Host}
+	if fwd := req.Header.Get("X-Forwarded-Host"); fwd != "" {
+		candidates = append(candidates, fwd)
+	}
+	if configured := os.Getenv("PLEDEBE_ORIGIN"); configured != "" {
+		if cu, err := url.Parse(configured); err == nil && cu.Host != "" {
+			candidates = append(candidates, cu.Host)
+		} else {
+			candidates = append(candidates, configured)
+		}
+	}
+
+	for _, c := range candidates {
+		if strings.EqualFold(u.Host, c) {
+			return origin, req.Host, true
+		}
+	}
+	return origin, req.Host, false
 }
 
 // deepStatus is what the template needs to render the button and its state.
