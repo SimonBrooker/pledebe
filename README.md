@@ -54,34 +54,51 @@ SCALE, OMV, bare Linux or Docker Desktop. Published for `amd64`, `arm64` and
 
 ## Install
 
-### 1. Extract Plex's SQLite
+### 1. Give pledebe Plex's SQLite
+
+pledebe needs Plex's own SQLite build — stock `sqlite3` cannot read a Plex
+database. There are two ways to provide it.
+
+#### Automatic (recommended)
+
+pledebe copies it out of your Plex container itself. In `.env`:
+
+```bash
+PLEX_SQLITE_SOURCE=docker
+PLEX_CONTAINER=plex
+DOCKER_HOST=tcp://pledebe-socket-proxy:2375
+```
+
+Then uncomment the `socket-proxy` service in `docker-compose.yml` and comment
+out the `/plexbin` volume. That proxy runs with `POST` disabled, so pledebe can
+only *read* the Docker API — it issues two GETs and cannot stop, start or exec
+anything. The copy is cached and repeated only when Plex is updated.
+
+This works with any image; pledebe tries each known install location and
+verifies by finding the binary rather than trusting a path.
+
+#### Manual
+
+If you would rather not give pledebe any Docker access, copy it yourself.
 
 **Run this on your Docker host** — the Unraid terminal, TrueNAS shell, or an SSH
-session on the machine running Docker. Not inside the Plex or pledebe
-containers; `docker cp` talks to the Docker daemon, so it only works where the
-daemon is.
-
-Do it from the directory you will keep `docker-compose.yml` in, so that
-`./plexbin` means the same thing to both:
+session on the machine running Docker. Not inside a container. Do it from the
+directory holding your `docker-compose.yml`, so `./plexbin` means the same thing
+to both:
 
 ```bash
 mkdir -p /mnt/user/appdata/pledebe && cd /mnt/user/appdata/pledebe
 ```
 
-One command, once. pledebe needs the whole directory, not just the binary —
-`Plex SQLite` will not run without its siblings.
+The whole directory is needed, not just the binary — `Plex SQLite` will not run
+without its siblings:
 
 ```bash
 docker cp plex:/usr/lib/plexmediaserver ./plexbin
 ```
 
-**hotio images keep it elsewhere:**
-
-```bash
-docker cp plex:/app/bin/usr/lib/plexmediaserver ./plexbin
-```
-
-Not sure which you have? This finds it:
+hotio images keep it at `/app/bin/usr/lib/plexmediaserver` instead. Not sure
+which you have?
 
 ```bash
 docker exec plex sh -c "find / -xdev -type f -name 'Plex SQLite' 2>/dev/null"
@@ -96,8 +113,21 @@ docker compose up -d
 
 Then open `http://your-host:8080`.
 
-`PUID=99 PGID=100` is the Unraid convention (`nobody:users`). Most other systems
-want `1000:1000`, which is the default.
+### Pick the right PUID
+
+**`PUID` must match whoever owns your Plex config directory.** Plex writes
+`Preferences.xml` readable only by its owner, and pledebe reads it to learn
+where backups go and when Plex runs maintenance. With the wrong `PUID` those
+checks report *unknown* instead of working.
+
+Find the right value:
+
+```bash
+stat -c 'PUID=%u PGID=%g' "/path/to/plex/config/Preferences.xml"
+```
+
+hotio images typically give `1000:1000`. It is **not** always the Unraid
+`99:100` convention, even on Unraid.
 
 ### Without compose
 
