@@ -1,6 +1,6 @@
 # pledebe
 
-**Watch your Plex database before it breaks.**
+**Pledebe watches your Plex database, whilst you watch Plex.**
 
 Plex databases fail quietly. Search stops returning results, adding an item to a
 collection starts throwing errors, the library balloons to tens of gigabytes, an
