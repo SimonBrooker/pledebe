@@ -11,5 +11,8 @@ func freeBytes(path string) int64 {
 	if err := syscall.Statfs(path, &st); err != nil {
 		return 0
 	}
-	return int64(st.Bavail) * st.Bsize
+	// Both operands need an explicit conversion: Bsize is int64 on 64-bit
+	// platforms but int32 on 32-bit ones (armv7), and Bavail is unsigned. A
+	// bare multiplication compiles on amd64 and fails on arm.
+	return int64(st.Bavail) * int64(st.Bsize)
 }
