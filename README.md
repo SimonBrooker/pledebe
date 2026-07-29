@@ -56,6 +56,18 @@ SCALE, OMV, bare Linux or Docker Desktop. Published for `amd64`, `arm64` and
 
 ### 1. Extract Plex's SQLite
 
+**Run this on your Docker host** — the Unraid terminal, TrueNAS shell, or an SSH
+session on the machine running Docker. Not inside the Plex or pledebe
+containers; `docker cp` talks to the Docker daemon, so it only works where the
+daemon is.
+
+Do it from the directory you will keep `docker-compose.yml` in, so that
+`./plexbin` means the same thing to both:
+
+```bash
+mkdir -p /mnt/user/appdata/pledebe && cd /mnt/user/appdata/pledebe
+```
+
 One command, once. pledebe needs the whole directory, not just the binary —
 `Plex SQLite` will not run without its siblings.
 
