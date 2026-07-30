@@ -4,6 +4,17 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>pledebe — {{.Summary.Headline}}</title>
+
+<link rel="icon" type="image/png" sizes="32x32" href="/static/icon-32.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/static/icon-180.png">
+<link rel="manifest" href="/manifest.webmanifest">
+
+<!-- Two theme colours so the browser chrome matches the page in either mode,
+     rather than committing to the dark ground the manifest has to pick. -->
+<meta name="theme-color" content="#f7f7f5" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#101216" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-title" content="pledebe">
+<meta name="apple-mobile-web-app-capable" content="yes">
 {{if .DeepRun.Running}}<meta http-equiv="refresh" content="10">{{else}}<meta http-equiv="refresh" content="120">{{end}}
 <style>
   /* Four states, not three. "Unknown" is first-class: it must read as absence

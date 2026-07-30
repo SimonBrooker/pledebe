@@ -107,6 +107,13 @@ func (s *Server) Handler() http.Handler {
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintln(w, "ok")
 	})
+
+	// Icons and the manifest are unauthenticated too. A browser fetches
+	// /favicon.ico before it has any credentials to offer, and gating them
+	// would produce a basic-auth prompt for an icon. They reveal nothing.
+	mux.Handle("GET /static/", staticHandler())
+	mux.HandleFunc("GET /favicon.ico", serveIcon)
+	mux.HandleFunc("GET /manifest.webmanifest", serveManifest)
 	return secureHeaders(mux)
 }
 

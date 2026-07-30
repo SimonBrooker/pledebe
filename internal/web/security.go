@@ -56,8 +56,14 @@ func (s *Server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 func secureHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		h := w.Header()
+		// img-src and manifest-src are 'self' because the page carries an icon
+		// and a PWA manifest, both embedded in the binary. Everything else
+		// remains 'none' — in particular there is still no script-src, because
+		// the page uses no JavaScript and a future one should be a deliberate
+		// decision rather than an inherited permission.
 		h.Set("Content-Security-Policy",
-			"default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; "+
+			"default-src 'none'; img-src 'self'; manifest-src 'self'; "+
+				"style-src 'unsafe-inline'; form-action 'self'; "+
 				"frame-ancestors 'none'; base-uri 'none'")
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "no-referrer")

@@ -480,3 +480,90 @@ func TestSlowQuerySectionShowsFigures(t *testing.T) {
 		}
 	}
 }
+
+// Icons and the manifest must be reachable without credentials: a browser
+// fetches /favicon.ico before it has any to offer, and gating it would pop a
+// basic-auth prompt for an icon.
+func TestIconsAndManifestUnauthenticated(t *testing.T) {
+	h := serverWithAuth(t, Auth{User: "admin", Password: "correct-horse"})
+
+	for _, path := range []string{
+		"/favicon.ico",
+		"/manifest.webmanifest",
+		"/static/icon-32.png",
+		"/static/icon-192.png",
+		"/static/icon-512.png",
+		"/static/icon-180.png",
+	} {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		if rec.Code != http.StatusOK {
+			t.Errorf("%s = %d, want 200", path, rec.Code)
+		}
+		if rec.Body.Len() == 0 {
+			t.Errorf("%s served no bytes", path)
+		}
+	}
+}
+
+func TestManifestContentTypeAndContents(t *testing.T) {
+	h := newTestServer(t, fullMetrics(), nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/manifest.webmanifest", nil))
+
+	// http.FileServer cannot infer this from the extension, so it is set
+	// explicitly; without it browsers ignore the manifest.
+	if got := rec.Header().Get("Content-Type"); got != "application/manifest+json" {
+		t.Errorf("Content-Type = %q, want application/manifest+json", got)
+	}
+	// Chrome needs a 192 and a 512 icon to consider the app installable.
+	for _, want := range []string{"icon-192.png", "icon-512.png", "standalone"} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Errorf("manifest missing %q", want)
+		}
+	}
+}
+
+// The page is no-store, but assets change only when the binary does.
+func TestStaticAssetsAreCacheable(t *testing.T) {
+	h := newTestServer(t, fullMetrics(), nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/static/icon-32.png", nil))
+
+	if got := rec.Header().Get("Cache-Control"); !strings.Contains(got, "max-age") {
+		t.Errorf("Cache-Control = %q, want a long max-age", got)
+	}
+}
+
+func TestPageLinksIconAndManifest(t *testing.T) {
+	body := render(t, newTestServer(t, fullMetrics(), nil))
+
+	for _, want := range []string{
+		`rel="icon"`,
+		`rel="apple-touch-icon"`,
+		`rel="manifest"`,
+		`name="theme-color"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("page head missing %s", want)
+		}
+	}
+}
+
+// The CSP must permit the icon and manifest it now references, and must still
+// grant nothing for scripts.
+func TestCSPAllowsIconsButNotScripts(t *testing.T) {
+	h := newTestServer(t, fullMetrics(), nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+
+	csp := rec.Header().Get("Content-Security-Policy")
+	for _, want := range []string{"img-src 'self'", "manifest-src 'self'", "default-src 'none'"} {
+		if !strings.Contains(csp, want) {
+			t.Errorf("CSP missing %q; got %q", want, csp)
+		}
+	}
+	if strings.Contains(csp, "script-src") {
+		t.Error("CSP grants script permissions; the page uses no JavaScript")
+	}
+}

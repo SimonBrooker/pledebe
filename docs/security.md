@@ -97,6 +97,17 @@ Security headers on every response: `Content-Security-Policy: default-src
 `frame-ancestors 'none'`, `form-action 'self'`, plus `nosniff`, `no-referrer`,
 `DENY` framing and `no-store`.
 
+**Deliberate relaxations, 2026-07-30.** Adding a favicon and a PWA manifest
+required `img-src 'self'` and `manifest-src 'self'`; `default-src 'none'` had
+forbidden both. Recorded here so the change reads as a decision rather than
+drift. Everything else remains denied, and there is still no `script-src` — a
+test asserts that, so adding JavaScript has to be an explicit choice.
+
+Icons and the manifest are served **unauthenticated**, even when basic auth is
+configured. A browser requests `/favicon.ico` before it has credentials to
+offer, and gating it produces an auth prompt for an icon. They are static
+images embedded in the binary and reveal nothing about the server.
+
 ## A06 — Vulnerable and outdated components
 
 One runtime dependency: `modernc.org/sqlite`, a pure-Go SQLite — no cgo, so no C
