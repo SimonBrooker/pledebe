@@ -17,10 +17,12 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/SimonBrooker/pledebe/internal/health"
+	"github.com/SimonBrooker/pledebe/internal/notify"
 	"github.com/SimonBrooker/pledebe/internal/plex"
 	"github.com/SimonBrooker/pledebe/internal/store"
 	"github.com/SimonBrooker/pledebe/internal/web"
@@ -182,7 +184,16 @@ func serve(install *plex.Install, db *plex.SQLite, dataDir, addr string,
 		Password: os.Getenv("PLEDEBE_PASSWORD"),
 	}
 
-	srv, err := web.New(install, db.BinaryPath, version, st, deepFn, auth)
+	// Validated before anything starts: a half-configured mailer should fail
+	// here, naming what is missing, rather than appearing to work and never
+	// sending.
+	mail := emailConfig()
+	if err := mail.Validate(); err != nil {
+		return err
+	}
+	host := envOr("PLEDEBE_HOST", shortHostname())
+
+	srv, err := web.New(install, db.BinaryPath, version, st, deepFn, auth, mail, host)
 	if err != nil {
 		return err
 	}
@@ -191,7 +202,7 @@ func serve(install *plex.Install, db *plex.SQLite, dataDir, addr string,
 	defer stop()
 
 	// Collect immediately so the page has something to show, then on a ticker.
-	go collectLoop(ctx, install, db, st, interval, retain)
+	go collectLoop(ctx, install, db, st, interval, retain, mail, host)
 	go deepCheckLoop(ctx, install, db, st, filepath.Join(dataDir, "scratch"), deepHour)
 
 	httpSrv := &http.Server{
@@ -283,7 +294,8 @@ func deepCheckLoop(ctx context.Context, install *plex.Install, db *plex.SQLite,
 }
 
 func collectLoop(ctx context.Context, install *plex.Install, db *plex.SQLite,
-	st *store.Store, interval, retain time.Duration) {
+	st *store.Store, interval, retain time.Duration,
+	mail notify.Config, host string) {
 
 	// Slow-query lines are only counted once: each poll scans from where the
 	// last one stopped. Zero on the first pass takes whatever the logs hold.
@@ -309,6 +321,11 @@ func collectLoop(ctx context.Context, install *plex.Install, db *plex.SQLite,
 		if err := st.PruneRaw(retain); err != nil {
 			log.Printf("prune failed: %v", err)
 		}
+
+		// Evaluate against the latest deep check so integrity and search-index
+		// problems are notified too, not only the cheap metrics.
+		deep, _ := st.LatestDeepCheck()
+		notifyChanges(st, mail, host, health.Evaluate(m, deep))
 	}
 
 	collect()
@@ -505,4 +522,84 @@ func startupPrefsWarning(install *plex.Install) string {
 		return err.Error()
 	}
 	return ""
+}
+
+// emailConfig reads notification settings from the environment.
+//
+// SMTP_PASSWORD is read here and passed straight to the mailer; like the Plex
+// token it is never logged, stored or rendered.
+func emailConfig() notify.Config {
+	var to []string
+	for _, addr := range strings.Split(os.Getenv("SMTP_TO"), ",") {
+		if addr = strings.TrimSpace(addr); addr != "" {
+			to = append(to, addr)
+		}
+	}
+	return notify.Config{
+		Host:     os.Getenv("SMTP_HOST"),
+		Port:     envInt("SMTP_PORT", 587),
+		User:     os.Getenv("SMTP_USER"),
+		Password: os.Getenv("SMTP_PASSWORD"),
+		From:     os.Getenv("SMTP_FROM"),
+		To:       to,
+		BaseURL:  os.Getenv("PLEDEBE_ORIGIN"),
+	}
+}
+
+// notifyChanges emails about findings that have appeared or cleared since the
+// last check.
+//
+// Errors are logged, never fatal: a mail server being down must not stop
+// pledebe monitoring. And nothing is marked as notified unless the send
+// succeeded, so a transient failure retries on the next poll rather than
+// silently swallowing the only warning anyone would have received.
+func notifyChanges(st *store.Store, cfg notify.Config, host string,
+	findings []health.Finding) {
+
+	if !cfg.Enabled() {
+		return
+	}
+
+	already, err := st.NotifiedFindings()
+	if err != nil {
+		log.Printf("notify: reading state: %v", err)
+		return
+	}
+
+	change := notify.Diff(findings, already)
+	if !change.Any() {
+		return
+	}
+
+	subject := notify.Subject(host, change)
+	body := notify.Body(host, change, cfg.BaseURL)
+
+	if err := cfg.Send(subject, body); err != nil {
+		log.Printf("notify: send failed, will retry next check: %v", err)
+		return
+	}
+	log.Printf("notify: emailed %d new, %d resolved", len(change.New), len(change.Recovered))
+
+	for _, f := range change.New {
+		if err := st.MarkNotified(f.Title, string(f.Level)); err != nil {
+			log.Printf("notify: %v", err)
+		}
+	}
+	for _, title := range change.Recovered {
+		if err := st.ClearNotified(title); err != nil {
+			log.Printf("notify: %v", err)
+		}
+	}
+}
+
+// shortHostname names this server in notifications.
+//
+// In a container os.Hostname() is the container ID, which tells the reader
+// nothing, so PLEDEBE_HOST exists to override it with something recognisable.
+func shortHostname() string {
+	h, err := os.Hostname()
+	if err != nil || h == "" {
+		return "pledebe"
+	}
+	return h
 }
