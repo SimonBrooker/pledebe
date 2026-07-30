@@ -37,6 +37,17 @@ services:
       PLEDEBE_USER: ${PLEDEBE_USER:-}
       PLEDEBE_PASSWORD: ${PLEDEBE_PASSWORD:-}
 
+      # Email notification. See .env.example; all three of HOST, FROM and TO
+      # are required together.
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_TO: ${SMTP_TO:-}
+      PLEDEBE_HOST: ${PLEDEBE_HOST:-}
+      PLEDEBE_ORIGIN: ${PLEDEBE_ORIGIN:-}
+
       # ADVANCED, opt-in. Leave as "mount" unless you have read the caveat in
       # .env.example: a socket proxy that is unreachable at startup stops
       # pledebe from starting at all, so it costs the whole service rather than

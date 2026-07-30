@@ -181,7 +181,7 @@ than assuming a layout, so pointing it at a parent directory also works.
 
 | Variable | Default | What it does |
 |---|---|---|
-| `PUID` / `PGID` | `1000` | Ownership for `/data`. Unraid users want `99` / `100` |
+| `PUID` / `PGID` | `1000` | **Must match whoever owns your Plex config directory** — see [Pick the right PUID](#pick-the-right-puid) |
 | `TZ` | `Etc/UTC` | Affects the deep-check schedule and displayed times |
 | `SCAN_INTERVAL` | `15m` | How often the cheap checks run |
 | `DEEP_CHECK_HOUR` | `4` | Hour of day (0–23) for the daily integrity check |
@@ -192,6 +192,12 @@ than assuming a layout, so pointing it at a parent directory also works.
 | `PLEX_CONFIG` | `/plexconfig` | Only change if you mount somewhere else |
 | `PLEX_SQLITE_DIR` | `/plexbin` | Only change if you mount somewhere else |
 | `PLEX_BACKUP_DIR` | *(unset)* | Set to `/plexbackups` if you mount backups |
+| `SMTP_HOST` | *(unset)* | Mail server. Required with `SMTP_FROM` and `SMTP_TO` to enable [email notification](#email-notification) |
+| `SMTP_PORT` | `587` | `587` STARTTLS, `465` implicit TLS, `25` plain |
+| `SMTP_USER` / `SMTP_PASSWORD` | *(unset)* | Omit both for a relay that needs no authentication |
+| `SMTP_FROM` / `SMTP_TO` | *(unset)* | `SMTP_TO` accepts a comma-separated list |
+| `PLEDEBE_HOST` | container hostname | Names this server in the email subject |
+| `PLEDEBE_ORIGIN` | *(unset)* | The address you use in a browser. Linked in emails, and resolves a reverse-proxy origin mismatch |
 
 ### Checking backup freshness
 
@@ -231,6 +237,32 @@ docker run --rm -v "/path/to/plex/config:/plexconfig:ro" -v ./plexbin:/plexbin:r
 
 ---
 
+## Email notification
+
+pledebe can email you when it finds a problem, and again when it clears.
+
+```bash
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=you@gmail.com
+SMTP_PASSWORD=an-app-specific-password
+SMTP_FROM=you@gmail.com
+SMTP_TO=you@gmail.com
+PLEDEBE_HOST=buzz                  # names the server in the subject
+PLEDEBE_ORIGIN=http://buzz:8080    # links to the status page
+```
+
+**It emails on change, not on state.** A corrupt database produces one email, not
+one every fifteen minutes. You are told again only if the problem clears and
+returns.
+
+**It stays quiet about things it could not measure.** Findings marked *unknown* —
+an unreadable settings file, a backup directory that is not mounted — are gaps in
+pledebe's knowledge rather than faults on your server, and never trigger mail.
+
+`SMTP_HOST`, `SMTP_FROM` and `SMTP_TO` are required together. pledebe refuses to
+start if only some are set, rather than appearing to work and never sending.
+
 ## Testing pre-release builds
 
 `:latest` only moves when a release is tagged. If you would like to try changes
@@ -259,7 +291,9 @@ authenticating reverse proxy. It logs a warning at startup if it is listening on
 all interfaces with no credentials.
 
 Your Plex token is never read, logged or displayed — `Preferences.xml` is parsed
-with an explicit allowlist, and crash logs are redacted before display.
+with an explicit allowlist, and crash logs are redacted before display. If you
+configure email, `SMTP_PASSWORD` is passed straight to the mail server and is
+likewise never logged or shown.
 
 Full review in [docs/security.md](docs/security.md).
 
