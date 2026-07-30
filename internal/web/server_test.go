@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/SimonBrooker/pledebe/internal/notify"
 	"github.com/SimonBrooker/pledebe/internal/plex"
 	"github.com/SimonBrooker/pledebe/internal/store"
 )
@@ -41,7 +42,7 @@ func newTestServer(t *testing.T, m *plex.Metrics, dc *plex.DeepCheck) http.Handl
 		Database:   "/plexconfig/Plug-in Support/Databases/com.plexapp.plugins.library.db",
 		LogDir:     "/plexconfig/Logs",
 	}
-	srv, err := New(install, "/plexbin/Plex SQLite", "test", st, nil, Auth{})
+	srv, err := New(install, "/plexbin/Plex SQLite", "test", st, nil, Auth{}, notify.Config{}, "testhost")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,7 +190,7 @@ func serverWithRunner(t *testing.T, run func(context.Context) error) http.Handle
 	if err := st.Insert(fullMetrics()); err != nil {
 		t.Fatal(err)
 	}
-	srv, err := New(&plex.Install{Database: "/db"}, "/plexbin/Plex SQLite", "test", st, run, Auth{})
+	srv, err := New(&plex.Install{Database: "/db"}, "/plexbin/Plex SQLite", "test", st, run, Auth{}, notify.Config{}, "testhost")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -565,5 +566,93 @@ func TestCSPAllowsIconsButNotScripts(t *testing.T) {
 	}
 	if strings.Contains(csp, "script-src") {
 		t.Error("CSP grants script permissions; the page uses no JavaScript")
+	}
+}
+
+// The bell reports whether notification is configured, and must never render
+// the password itself — the page may be reachable without authentication.
+func TestBellShowsStatusWithoutLeakingPassword(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "history.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	if err := st.Insert(fullMetrics()); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := notify.Config{
+		Host: "smtp.example", Port: 587,
+		User: "someone@example", Password: "hunter2-should-never-appear",
+		From: "someone@example", To: []string{"someone@example"},
+	}
+	srv, err := New(&plex.Install{Database: "/db"}, "/plexbin/Plex SQLite", "test",
+		st, nil, Auth{}, cfg, "buzz")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	body := render(t, srv.Handler())
+
+	if strings.Contains(body, "hunter2-should-never-appear") {
+		t.Fatal("the SMTP password was rendered into the page")
+	}
+	for _, want := range []string{"Send test email", "SMTP_HOST", "smtp.example"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("bell panel missing %q", want)
+		}
+	}
+}
+
+// Unconfigured, the bell says which required variables are absent rather than
+// only that something is wrong.
+func TestBellNamesMissingVariables(t *testing.T) {
+	body := render(t, newTestServer(t, fullMetrics(), nil))
+
+	if !strings.Contains(body, "Email notification is off") {
+		t.Error("expected the bell to report notification as off")
+	}
+	for _, want := range []string{"SMTP_HOST", "SMTP_FROM", "SMTP_TO"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing-variable list should name %q", want)
+		}
+	}
+	if strings.Contains(body, "Send test email") {
+		t.Error("offered a test button with nothing configured")
+	}
+}
+
+// Sending mail is a side effect; the endpoint needs the same protections as the
+// deep-check button.
+func TestTestEmailEndpointGuards(t *testing.T) {
+	h := newTestServer(t, fullMetrics(), nil) // no mail configured
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/test-email", nil))
+	if rec.Code != http.StatusPreconditionFailed {
+		t.Errorf("unconfigured = %d, want 412", rec.Code)
+	}
+
+	// Cross-origin must be refused even when it is configured.
+	st, err := store.Open(filepath.Join(t.TempDir(), "history.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	if err := st.Insert(fullMetrics()); err != nil {
+		t.Fatal(err)
+	}
+	cfg := notify.Config{Host: "smtp.invalid", From: "a@b", To: []string{"c@d"}}
+	srv, err := New(&plex.Install{Database: "/db"}, "/x", "test", st, nil, Auth{}, cfg, "buzz")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/test-email", nil)
+	req.Header.Set("Origin", "https://evil.example")
+	rec = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("cross-origin = %d, want 403", rec.Code)
 	}
 }

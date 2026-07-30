@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/SimonBrooker/pledebe/internal/notify"
 	"github.com/SimonBrooker/pledebe/internal/plex"
 	"github.com/SimonBrooker/pledebe/internal/store"
 )
@@ -23,7 +24,7 @@ func serverWithAuth(t *testing.T, auth Auth) http.Handler {
 		t.Fatal(err)
 	}
 	srv, err := New(&plex.Install{Database: "/db"}, "/plexbin/Plex SQLite", "test", st,
-		func(ctx context.Context) error { return nil }, auth)
+		func(ctx context.Context) error { return nil }, auth, notify.Config{}, "testhost")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -73,8 +73,55 @@
   }
   .app-name { font-weight: 700; font-size: 1.05rem; letter-spacing: -.01em; }
   .app-meta { font-family: var(--mono); font-size: .72rem; color: var(--ink-3); }
+  /* Notification bell. A <details> element, so it opens on click with no
+     JavaScript — the page has none, deliberately. */
+  .bell { margin-left: auto; position: relative; }
+  .bell > summary {
+    list-style: none; cursor: pointer; display: grid; place-items: center;
+    width: 26px; height: 26px; border-radius: 100px;
+    border: 1px solid var(--line); color: var(--ink-3);
+  }
+  .bell > summary::-webkit-details-marker { display: none; }
+  .bell.on > summary { color: var(--ok); border-color: var(--ok); }
+  .bell > summary:hover { border-color: var(--accent); color: var(--accent); }
+  .bell > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .bell-panel {
+    position: absolute; right: 0; top: calc(100% + .5rem); z-index: 10;
+    width: min(24rem, calc(100vw - 2.5rem));
+    background: var(--surface); border: 1px solid var(--line-strong);
+    border-radius: var(--r); padding: .9rem 1rem;
+    box-shadow: 0 8px 28px rgba(0,0,0,.22);
+    text-align: left;
+  }
+  .bell-head { margin: 0 0 .6rem; font-size: .82rem; color: var(--ink-2); }
+  .bell-vars {
+    display: grid; grid-template-columns: max-content 1fr; gap: .25rem .8rem;
+    margin: 0 0 .8rem; font-size: .76rem;
+  }
+  .bell-vars dt { font-family: var(--mono); color: var(--ink-3); }
+  .bell-vars dd { margin: 0; font-family: var(--mono); word-break: break-all; color: var(--ink-3); }
+  .bell-vars dd.ok { color: var(--ok); }
+  .bell-vars dd.warn { color: var(--warn); }
+  .bell-vars .req {
+    font-family: var(--sans); font-size: .62rem; text-transform: uppercase;
+    letter-spacing: .06em; color: var(--warn);
+  }
+  .bell-panel form { margin: 0; }
+  .bell-panel button {
+    font: inherit; font-size: .8rem; font-weight: 600; cursor: pointer;
+    padding: .35rem .8rem; border-radius: var(--r);
+    border: 1px solid var(--accent); background: transparent; color: var(--accent);
+  }
+  .bell-panel button:hover:not(:disabled) { background: var(--accent); color: var(--ground); }
+  .bell-panel button:disabled { opacity: .45; cursor: not-allowed; }
+  .bell-panel button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .bell-note { margin: .6rem 0 0; font-size: .76rem; color: var(--ink-3); }
+  .bell-note.ok { color: var(--ok); }
+  .bell-note.warn { color: var(--warn); }
+
   .app-version {
-    margin-left: auto; font-family: var(--mono); font-size: .72rem;
+    font-family: var(--mono); font-size: .72rem;
     color: var(--ink-3); text-decoration: none;
     border: 1px solid var(--line); border-radius: 100px; padding: .1rem .55rem;
   }
@@ -242,6 +289,55 @@
       {{if .Metrics.PMSVersion}}Plex {{.Metrics.PMSVersion}} since {{.Metrics.VersionSeenAt.Format "2 Jan 2006"}} · {{end}}
       checked {{ago .Metrics.CollectedAt}}
     </span>
+    {{with .Email}}
+    <details class="bell {{if .Configured}}on{{end}}">
+      <summary title="Email notification" aria-label="Email notification">
+        <svg viewBox="0 0 24 24" width="17" height="17" fill="none"
+             stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+             stroke-linejoin="round" aria-hidden="true">
+          <path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/>
+          <path d="M13.7 21a2 2 0 0 1-3.4 0"/>
+        </svg>
+      </summary>
+
+      <div class="bell-panel">
+        {{if .Configured}}
+        <p class="bell-head"><strong>Email notification is on.</strong>
+          You will be emailed once when a problem appears, and again when it clears.</p>
+        {{else}}
+        <p class="bell-head"><strong>Email notification is off.</strong>
+          {{if .Missing}}Missing: {{range $i, $v := .Missing}}{{if $i}}, {{end}}<code>{{$v}}</code>{{end}}.{{else}}Set the variables below to enable it.{{end}}</p>
+        {{end}}
+
+        <dl class="bell-vars">
+          {{range .Vars}}
+          <dt>{{.Name}}{{if .Required}} <span class="req">required</span>{{end}}</dt>
+          <dd class="{{if .Set}}ok{{else if .Required}}warn{{end}}">
+            {{if .Secret}}{{if .Set}}set{{else}}not set{{end}}
+            {{else if .Set}}{{.Value}}
+            {{else}}not set{{end}}
+          </dd>
+          {{end}}
+        </dl>
+
+        {{if .Configured}}
+        <form method="post" action="/test-email">
+          <button type="submit" {{if not .CanTest}}disabled{{end}}>Send test email</button>
+        </form>
+        {{if not .CanTest}}
+        <p class="bell-note">Just sent one — wait a moment before trying again.</p>
+        {{end}}
+        {{end}}
+
+        {{if .LastTest}}
+        <p class="bell-note {{if .LastTestOK}}ok{{else}}warn{{end}}">
+          {{if .LastTestOK}}✓{{else}}✗{{end}} {{.LastTest}}
+        </p>
+        {{end}}
+      </div>
+    </details>
+    {{end}}
+
     <a class="app-version" href="{{.VersionURL}}" rel="noreferrer noopener">{{.Version}}</a>
   </div>
 

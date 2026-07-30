@@ -184,7 +184,16 @@ func serve(install *plex.Install, db *plex.SQLite, dataDir, addr string,
 		Password: os.Getenv("PLEDEBE_PASSWORD"),
 	}
 
-	srv, err := web.New(install, db.BinaryPath, version, st, deepFn, auth)
+	// Validated before anything starts: a half-configured mailer should fail
+	// here, naming what is missing, rather than appearing to work and never
+	// sending.
+	mail := emailConfig()
+	if err := mail.Validate(); err != nil {
+		return err
+	}
+	host := envOr("PLEDEBE_HOST", shortHostname())
+
+	srv, err := web.New(install, db.BinaryPath, version, st, deepFn, auth, mail, host)
 	if err != nil {
 		return err
 	}
@@ -193,12 +202,6 @@ func serve(install *plex.Install, db *plex.SQLite, dataDir, addr string,
 	defer stop()
 
 	// Collect immediately so the page has something to show, then on a ticker.
-	mail := emailConfig()
-	if err := mail.Validate(); err != nil {
-		return err
-	}
-	host := envOr("PLEDEBE_HOST", shortHostname())
-
 	go collectLoop(ctx, install, db, st, interval, retain, mail, host)
 	go deepCheckLoop(ctx, install, db, st, filepath.Join(dataDir, "scratch"), deepHour)
 

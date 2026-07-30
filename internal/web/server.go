@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/SimonBrooker/pledebe/internal/health"
+	"github.com/SimonBrooker/pledebe/internal/notify"
 	"github.com/SimonBrooker/pledebe/internal/plex"
 	"github.com/SimonBrooker/pledebe/internal/store"
 )
@@ -38,8 +39,10 @@ type Server struct {
 	Version    string
 	Store      *store.Store
 	Auth       Auth
+	NotifyHost string
 
 	runner *deepRunner
+	mail   *mailTester
 	tmpl   *template.Template
 }
 
@@ -64,6 +67,7 @@ type pageData struct {
 	ButlerWindow string
 	Levels       map[string]health.Level
 	DeepRun      deepStatus
+	Email        emailStatus
 }
 
 // New builds a server, parsing templates up front so a template error surfaces
@@ -71,7 +75,8 @@ type pageData struct {
 // New builds a server. runDeep may be nil, in which case the page offers no
 // button — a deployment that cannot run checks should not pretend it can.
 func New(install *plex.Install, sqlitePath, version string, st *store.Store,
-	runDeep func(context.Context) error, auth Auth) (*Server, error) {
+	runDeep func(context.Context) error, auth Auth,
+	mail notify.Config, notifyHost string) (*Server, error) {
 	funcs := template.FuncMap{
 		"bytes": humanBytes,
 		// Accepts any integer width: the metrics mix int and int64, and a
@@ -87,6 +92,8 @@ func New(install *plex.Install, sqlitePath, version string, st *store.Store,
 	srv := &Server{
 		Install: install, SQLitePath: sqlitePath, Version: version,
 		Store: st, tmpl: tmpl, Auth: auth,
+		NotifyHost: notifyHost,
+		mail:       &mailTester{cfg: mail},
 	}
 	if runDeep != nil {
 		srv.runner = &deepRunner{run: runDeep}
@@ -99,6 +106,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", s.requireAuth(s.status))
 	mux.HandleFunc("POST /deepcheck", s.requireAuth(s.postDeepCheck))
+	mux.HandleFunc("POST /test-email", s.requireAuth(s.postTestEmail))
 	mux.HandleFunc("GET /api/latest", s.requireAuth(s.apiLatest))
 
 	// Unauthenticated on purpose: container health checks must reach it, and
@@ -164,6 +172,7 @@ func (s *Server) status(w http.ResponseWriter, _ *http.Request) {
 		cost.SnapshotSec, cost.CheckSec = deep.SnapshotSec, deep.CheckSec
 	}
 	data.DeepRun = s.deepStatus(cost)
+	data.Email = s.mail.status()
 	if len(days) > recentDays {
 		data.RecentDays, data.OlderDays = days[:recentDays], days[recentDays:]
 	} else {
