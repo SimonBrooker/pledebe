@@ -292,11 +292,14 @@
     {{with .Email}}
     <details class="bell {{if .Configured}}on{{end}}">
       <summary title="Email notification" aria-label="Email notification">
-        <svg viewBox="0 0 24 24" width="17" height="17" fill="none"
-             stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+        <!-- An envelope rather than a bell: this panel is specifically about
+             email, and two straight-edged shapes stay crisp at 16px where a
+             bell's curves and clapper turn to mush. -->
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none"
+             stroke="currentColor" stroke-width="1.9" stroke-linecap="round"
              stroke-linejoin="round" aria-hidden="true">
-          <path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/>
-          <path d="M13.7 21a2 2 0 0 1-3.4 0"/>
+          <rect x="2.5" y="5" width="19" height="14" rx="2"/>
+          <path d="M3 7l9 6 9-6"/>
         </svg>
       </summary>
 

@@ -77,10 +77,7 @@ func (c Config) Send(subject, body string) error {
 	addr := net.JoinHostPort(c.Host, fmt.Sprint(port))
 	msg := c.message(subject, body)
 
-	var auth smtp.Auth
-	if c.User != "" {
-		auth = smtp.PlainAuth("", c.User, c.Password, c.Host)
-	}
+	auth := newAuth(c.User, c.Password, c.Host)
 
 	if port == 465 {
 		return c.sendImplicitTLS(addr, auth, msg)
